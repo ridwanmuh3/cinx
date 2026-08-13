@@ -55,9 +55,18 @@ function record(name, res, expectedStatus) {
   return ok;
 }
 
+// Caches one JWT per VU so later iterations reuse the token instead of
+// re-registering (which returns 422 on repeat and inflates http_req_failed).
+const authCache = {};
+
 // Registers or logs in, returning a JWT. Uses unique email per VU so that
 // holds are isolated between virtual users.
 export function auth() {
+  const cached = authCache[__VU];
+  if (cached) {
+    return cached;
+  }
+
   const email = `${DEMO_EMAIL.replace('@', `-${__VU}@`)}`;
   const body = jsonBody({
     email,
@@ -80,10 +89,12 @@ export function auth() {
     if (!record('login', loginRes, 200)) {
       fail(`login failed (${loginRes.status}): ${loginRes.body}`);
     }
-    return loginRes.json('accessToken');
+    authCache[__VU] = loginRes.json('accessToken');
+    return authCache[__VU];
   }
 
-  return register.json('accessToken');
+  authCache[__VU] = register.json('accessToken');
+  return authCache[__VU];
 }
 
 // Fetches a showtime id from the seeded catalog.

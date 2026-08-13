@@ -52,6 +52,7 @@ export class BookingsController {
   }
 
   @Post('bookings/:id/pay')
+  @HttpCode(200)
   pay(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
