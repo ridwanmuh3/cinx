@@ -1,0 +1,205 @@
+# Full containerized stack with network isolation.
+#
+#   public   -> web + gateway (the only services exposed to clients)
+#   internal -> gateway, microservices, postgres, redis (internal: true, no
+#               host port publishing and no outbound access)
+#
+# Only `web` (SPA) and `gateway` (REST API) publish host ports. Postgres,
+# Redis and the three TCP microservices are unreachable from outside.
+
+name: ticketing-cinema
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-4200}:80'
+    networks: [public]
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/gateway:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      USER_HOST: user-service
+      CINEMA_HOST: cinema-service
+      TICKET_HOST: ticket-service
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    ports:
+      - '${GATEWAY_PORT:-3000}:3000'
+    networks: [public, internal]
+    depends_on:
+      user-service:
+        condition: service_healthy
+      cinema-service:
+        condition: service_healthy
+      ticket-service:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/api/v1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  user-service:
+    build:
+      context: .
+      dockerfile: apps/user-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/user-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(3001,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  cinema-service:
+    build:
+      context: .
+      dockerfile: apps/cinema-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/cinema-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(3002,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ticket-service:
+    build:
+      context: .
+      dockerfile: apps/ticket-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/ticket-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      REDIS_URL: redis://redis:6379
+      CINEMA_HOST: cinema-service
+      CINEMA_PORT: 3002
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      cinema-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(3003,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - pg_data:/var/lib/postgresql
+      - ./infra/init:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.10-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot demo data seeding. Run with:
+  #   docker compose --profile seed run --rm seed
+  seed:
+    profiles: [seed]
+    build:
+      context: .
+      dockerfile: infra/seed.Dockerfile
+    environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  public:
+  internal:
+    internal: true
+
+volumes:
+  pg_data:
+  redis_data:

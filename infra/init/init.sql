@@ -1,0 +1,3 @@
+CREATE DATABASE user_db;
+CREATE DATABASE cinema_db;
+CREATE DATABASE ticket_db;

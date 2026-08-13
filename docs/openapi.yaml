@@ -1,0 +1,1729 @@
+openapi: 3.1.0
+info:
+  title: Ticketing Cinema API
+  version: 1.0.0
+  description: |
+    Contract for the Ticketing Cinema system.
+
+    The gateway is the single REST entry point. It forwards requests to
+    internal services over TCP (user-service, cinema-service, ticket-service).
+    This document only describes the public REST surface exposed by the gateway.
+
+    ## Booking flow (two-step hold -> pay)
+    1. `POST /bookings/holds` reserves seats with a Redis lock (5-minute TTL)
+       and returns a `bookingId`, `paymentId` and `expiresAt`.
+    2. `POST /bookings/{id}/pay` confirms the booking (mock payment). If the
+       hold has expired the API returns `410 Gone` and the seats are released.
+    3. `POST /bookings/{id}/cancel` releases the seats (only while PENDING).
+
+    ## Roles
+    - `admin` — full access to catalog management (movies, theaters, showtimes).
+    - `user` — browse catalog, hold/pay/cancel bookings, view tickets.
+
+    All prices are integer IDR (no decimals). All ids are UUID strings.
+  license:
+    name: Proprietary
+    identifier: Proprietary
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development (gateway)
+
+tags:
+  - name: Health
+    description: Service health
+  - name: Auth
+    description: Registration, login, current user
+  - name: Movies
+    description: Movie catalog (admin manages, everyone reads)
+  - name: Theaters
+    description: Theaters and seat layouts (admin manages, everyone reads)
+  - name: Showtimes
+    description: Showtime schedule and seat availability
+  - name: Bookings
+    description: Seat holds, payment, cancellation
+  - name: Tickets
+    description: Issued e-tickets
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      security: []
+      tags: [Health]
+      summary: Check gateway and internal service health
+      operationId: getHealth
+      responses:
+        "200":
+          description: All services healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, services]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  services:
+                    type: object
+                    required: [user, cinema, ticket]
+                    properties:
+                      user:
+                        $ref: "#/components/schemas/HealthService"
+                      cinema:
+                        $ref: "#/components/schemas/HealthService"
+                      ticket:
+                        $ref: "#/components/schemas/HealthService"
+        "503":
+          description: One or more services unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "400":
+          description: Malformed request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/register:
+    post:
+      security: []
+      tags: [Auth]
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid payload or email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/login:
+    post:
+      security: []
+      tags: [Auth]
+      summary: Login and receive an access token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the current authenticated user
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /movies:
+    get:
+      security: []
+      tags: [Movies]
+      summary: List movies
+      operationId: listMovies
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: q
+          in: query
+          description: Search by title (case-insensitive substring)
+          schema:
+            type: string
+        - name: genre
+          in: query
+          description: Filter by exact genre
+          schema:
+            type: string
+        - name: nowPlaying
+          in: query
+          description: Filter by screening status
+          schema:
+            type: boolean
+            enum: [true, false]
+      responses:
+        "200":
+          description: Paginated movie list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MoviePage"
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Movies]
+      summary: Create a movie (admin)
+      operationId: createMovie
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MovieCreateRequest"
+      responses:
+        "201":
+          description: Movie created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /movies/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      security: []
+      tags: [Movies]
+      summary: Get a movie by id
+      operationId: getMovie
+      responses:
+        "200":
+          description: Movie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "404":
+          description: Movie not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [Movies]
+      summary: Update a movie (admin)
+      operationId: updateMovie
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MovieUpdateRequest"
+      responses:
+        "200":
+          description: Updated movie
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Movie"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Movie not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Movies]
+      summary: Delete a movie (admin)
+      operationId: deleteMovie
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Movie deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Movie not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Movie has showtimes and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /theaters:
+    get:
+      security: []
+      tags: [Theaters]
+      summary: List theaters
+      operationId: listTheaters
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated theater list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TheaterPage"
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Theaters]
+      summary: Create a theater (admin)
+      operationId: createTheater
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TheaterCreateRequest"
+      responses:
+        "201":
+          description: Theater created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theater"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /theaters/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      security: []
+      tags: [Theaters]
+      summary: Get a theater by id (includes seat layout)
+      operationId: getTheater
+      responses:
+        "200":
+          description: Theater
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theater"
+        "404":
+          description: Theater not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [Theaters]
+      summary: Update a theater (admin)
+      operationId: updateTheater
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TheaterUpdateRequest"
+      responses:
+        "200":
+          description: Updated theater
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theater"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Theater not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Theater has scheduled showtimes and cannot be updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Theaters]
+      summary: Delete a theater (admin)
+      operationId: deleteTheater
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Theater deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Theater not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Theater has scheduled showtimes and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /showtimes:
+    get:
+      security: []
+      tags: [Showtimes]
+      summary: List showtimes
+      operationId: listShowtimes
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: movieId
+          in: query
+          description: Filter by movie
+          schema:
+            $ref: "#/components/schemas/ObjectId"
+        - name: theaterId
+          in: query
+          description: Filter by theater
+          schema:
+            $ref: "#/components/schemas/ObjectId"
+        - name: from
+          in: query
+          description: Showtimes starting at or after this ISO date-time
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Showtimes starting at or before this ISO date-time
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Paginated showtime list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShowtimePage"
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Showtimes]
+      summary: Create a showtime (admin)
+      operationId: createShowtime
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShowtimeCreateRequest"
+      responses:
+        "201":
+          description: Showtime created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Showtime"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Movie or theater not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Theater already has a showtime overlapping this slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /showtimes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      security: []
+      tags: [Showtimes]
+      summary: Get a showtime by id
+      operationId: getShowtime
+      responses:
+        "200":
+          description: Showtime
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Showtime"
+        "404":
+          description: Showtime not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      tags: [Showtimes]
+      summary: Update a showtime (admin)
+      operationId: updateShowtime
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShowtimeUpdateRequest"
+      responses:
+        "200":
+          description: Updated showtime
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Showtime"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Showtime not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Showtime has bookings and cannot be changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Showtimes]
+      summary: Delete a showtime (admin)
+      operationId: deleteShowtime
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Showtime deleted
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Requires admin role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Showtime not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Showtime has bookings and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /showtimes/{id}/seats:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      security: []
+      tags: [Showtimes]
+      summary: Get seat map with live availability for a showtime
+      operationId: getShowtimeSeats
+      description: |
+        Statuses:
+        - `AVAILABLE` — seat can be held.
+        - `HELD` — seat is locked by an in-progress hold (TTL not yet expired).
+        - `BOOKED` — seat belongs to a confirmed booking.
+      responses:
+        "200":
+          description: Seat map
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatMap"
+        "404":
+          description: Showtime not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /bookings/holds:
+    post:
+      tags: [Bookings]
+      summary: Hold seats for a showtime (start of two-step booking)
+      operationId: createBookingHold
+      description: |
+        Acquires a Redis lock on every requested seat. If any seat is already
+        held or booked, no seats are locked and `409 Conflict` is returned.
+        On success the booking is `PENDING` and expires at `expiresAt`.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HoldRequest"
+      responses:
+        "201":
+          description: Seats held, booking created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingHeld"
+        "400":
+          description: Invalid payload (empty seatIds, unknown seats, disabled seats)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Showtime not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: One or more seats are already held or booked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatConflictError"
+
+  /bookings:
+    get:
+      tags: [Bookings]
+      summary: List the current user's bookings
+      operationId: listMyBookings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          description: Filter by booking status
+          schema:
+            $ref: "#/components/schemas/BookingStatus"
+      responses:
+        "200":
+          description: Paginated booking list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingPage"
+        "400":
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /bookings/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Bookings]
+      summary: Get a booking by id (owner or admin)
+      operationId: getBooking
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not the booking owner and not admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /bookings/{id}/pay:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Bookings]
+      summary: Confirm a booking with a mock payment
+      operationId: payBooking
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PayRequest"
+      responses:
+        "200":
+          description: |
+            Payment processed. Check `payment.status`:
+            - `PAID` — booking is `CONFIRMED` and tickets are issued.
+            - `FAILED` — booking remains `PENDING` (simulated payment failure),
+              the client may retry until `expiresAt`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not the booking owner and not admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Booking is already CONFIRMED or CANCELLED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          description: Booking hold has expired; seats released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /bookings/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [Bookings]
+      summary: Cancel a pending booking and release its seats
+      operationId: cancelBooking
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Booking cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Not the booking owner and not admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Booking is not PENDING (cannot cancel CONFIRMED/EXPIRED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /tickets/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        description: Ticket code (e.g. `TKT-A1B2C3`)
+        schema:
+          $ref: "#/components/schemas/TicketCode"
+    get:
+      security: []
+      tags: [Tickets]
+      summary: Look up an issued ticket by its code (public, for scanning)
+      operationId: getTicketByCode
+      responses:
+        "200":
+          description: Ticket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
+        "404":
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token obtained from POST /auth/login.
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: Resource id (MongoDB ObjectId)
+      schema:
+        $ref: "#/components/schemas/ObjectId"
+    Page:
+      name: page
+      in: query
+      description: Page number, 1-based
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    ObjectId:
+      type: string
+      pattern: "^[0-9a-fA-F]{24}$"
+      example: 66f3a1b2c3d4e5f6a7b8c9d0
+
+    TicketCode:
+      type: string
+      pattern: "^TKT-[A-Z0-9]{6}$"
+      example: TKT-A1B2C3
+
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          minimum: 0
+          description: Price in IDR, no decimals
+          example: 50000
+        currency:
+          type: string
+          enum: [IDR]
+
+    Error:
+      type: object
+      description: Standard error body (NestJS format)
+      required: [statusCode, message, error]
+      properties:
+        statusCode:
+          type: integer
+          example: 404
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        error:
+          type: string
+          example: Not Found
+        conflictSeatIds:
+          type: array
+          description: Present only on seat-conflict errors
+          items:
+            $ref: "#/components/schemas/ObjectId"
+        paymentStatus:
+          type: string
+          description: Present only on payment errors
+          enum: [PENDING, PAID, FAILED]
+
+    SeatConflictError:
+      allOf:
+        - $ref: "#/components/schemas/Error"
+        - type: object
+          required: [conflictSeatIds]
+          properties:
+            conflictSeatIds:
+              type: array
+              items:
+                $ref: "#/components/schemas/ObjectId"
+            message:
+              type: string
+              example: One or more seats are already held or booked
+
+    HealthService:
+      type: object
+      required: [service, status, timestamp]
+      properties:
+        service:
+          type: string
+          example: user-service
+        status:
+          type: string
+          enum: [ok]
+        timestamp:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      required: [id, email, name, role, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        email:
+          type: string
+          format: email
+          example: budi@example.com
+        name:
+          type: string
+          example: Budi
+        role:
+          type: string
+          enum: [admin, user]
+        createdAt:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          description: Stored hashed (bcrypt)
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken:
+          type: string
+          description: JWT (signed, contains userId and role)
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Token lifetime in seconds
+          example: 3600
+        user:
+          $ref: "#/components/schemas/User"
+
+    AgeRating:
+      type: string
+      enum: [SU, BO, "13+", "17+", "21+"]
+      description: "SU = all ages, BO = family/baby-friendly"
+
+    MovieStatus:
+      type: string
+      enum: [NOW_SHOWING, COMING_SOON, ENDED]
+
+    Movie:
+      type: object
+      required:
+        - id
+        - title
+        - synopsis
+        - genres
+        - durationMinutes
+        - ageRating
+        - releaseDate
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        title:
+          type: string
+          example: The Grand Adventure
+        synopsis:
+          type: string
+          example: A sweeping journey across an uncharted continent.
+        genres:
+          type: array
+          items:
+            type: string
+          example: [Adventure, Fantasy]
+        durationMinutes:
+          type: integer
+          minimum: 1
+          example: 128
+        ageRating:
+          $ref: "#/components/schemas/AgeRating"
+        posterUrl:
+          type: [string, "null"]
+          format: uri
+        releaseDate:
+          type: string
+          format: date
+          example: "2026-08-01"
+        status:
+          $ref: "#/components/schemas/MovieStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MovieCreateRequest:
+      type: object
+      required:
+        [title, synopsis, genres, durationMinutes, ageRating, releaseDate]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        synopsis:
+          type: string
+          maxLength: 5000
+        genres:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        durationMinutes:
+          type: integer
+          minimum: 1
+        ageRating:
+          $ref: "#/components/schemas/AgeRating"
+        posterUrl:
+          type: [string, "null"]
+          format: uri
+        releaseDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MovieStatus"
+
+    MovieUpdateRequest:
+      type: object
+      description: All properties optional; only provided ones are updated
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        synopsis:
+          type: string
+          maxLength: 5000
+        genres:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        durationMinutes:
+          type: integer
+          minimum: 1
+        ageRating:
+          $ref: "#/components/schemas/AgeRating"
+        posterUrl:
+          type: [string, "null"]
+          format: uri
+        releaseDate:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/MovieStatus"
+
+    MoviePage:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Movie"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    SeatCategory:
+      type: string
+      enum: [REGULAR, VIP, COUPLE]
+
+    Seat:
+      type: object
+      required: [id, row, number, category, isAccessible, isDisabled]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        row:
+          type: string
+          description: Row label, e.g. `A`
+          example: A
+        number:
+          type: integer
+          description: Seat number within the row
+          example: 5
+        category:
+          $ref: "#/components/schemas/SeatCategory"
+        isAccessible:
+          type: boolean
+          description: Wheelchair-accessible spot
+        isDisabled:
+          type: boolean
+          description: Permanently blocked seat (e.g. broken)
+
+    Theater:
+      type: object
+      required: [id, name, address, seats, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        name:
+          type: string
+          example: Grand Cineplex 1
+        address:
+          type: string
+          example: Jl. Sudirman No. 1, Jakarta
+        seats:
+          type: array
+          items:
+            $ref: "#/components/schemas/Seat"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TheaterCreateRequest:
+      type: object
+      required: [name, address, layout]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: string
+          minLength: 1
+          maxLength: 300
+        layout:
+          type: object
+          required: [rows, cols]
+          description: |
+            Generates a grid of seats: `rows` letters (A, B, ...) x `cols`
+            numbers (1, 2, ...). Last row and last two seats per row are marked
+            `COUPLE`, back quarter of rows marked `VIP`, rest `REGULAR`.
+          properties:
+            rows:
+              type: integer
+              minimum: 1
+              maximum: 26
+              description: Number of rows (max 26)
+              example: 8
+            cols:
+              type: integer
+              minimum: 1
+              maximum: 20
+              example: 12
+
+    TheaterUpdateRequest:
+      type: object
+      description: All properties optional; only provided ones are updated
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: string
+          minLength: 1
+          maxLength: 300
+
+    TheaterPage:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Theater"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    MovieSummary:
+      type: object
+      required: [id, title, posterUrl, ageRating, durationMinutes]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        title:
+          type: string
+        posterUrl:
+          type: [string, "null"]
+          format: uri
+        ageRating:
+          $ref: "#/components/schemas/AgeRating"
+        durationMinutes:
+          type: integer
+
+    TheaterSummary:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        name:
+          type: string
+
+    Showtime:
+      type: object
+      required:
+        - id
+        - movie
+        - theater
+        - startsAt
+        - price
+        - availableSeats
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        movie:
+          $ref: "#/components/schemas/MovieSummary"
+        theater:
+          $ref: "#/components/schemas/TheaterSummary"
+        startsAt:
+          type: string
+          format: date-time
+          description: Screening start time
+        price:
+          $ref: "#/components/schemas/Money"
+        availableSeats:
+          type: integer
+          description: Total seats minus currently held and booked seats
+          example: 90
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ShowtimeCreateRequest:
+      type: object
+      required: [movieId, theaterId, startsAt, price]
+      properties:
+        movieId:
+          $ref: "#/components/schemas/ObjectId"
+        theaterId:
+          $ref: "#/components/schemas/ObjectId"
+        startsAt:
+          type: string
+          format: date-time
+        price:
+          $ref: "#/components/schemas/Money"
+
+    ShowtimeUpdateRequest:
+      type: object
+      description: All properties optional; only provided ones are updated
+      properties:
+        movieId:
+          $ref: "#/components/schemas/ObjectId"
+        theaterId:
+          $ref: "#/components/schemas/ObjectId"
+        startsAt:
+          type: string
+          format: date-time
+        price:
+          $ref: "#/components/schemas/Money"
+
+    ShowtimePage:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Showtime"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    SeatStatus:
+      type: string
+      enum: [AVAILABLE, HELD, BOOKED]
+
+    SeatAvailability:
+      type: object
+      required: [id, row, number, category, isAccessible, status]
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        row:
+          type: string
+        number:
+          type: integer
+        category:
+          $ref: "#/components/schemas/SeatCategory"
+        isAccessible:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/SeatStatus"
+
+    SeatMap:
+      type: object
+      required: [showtimeId, price, seats]
+      properties:
+        showtimeId:
+          $ref: "#/components/schemas/ObjectId"
+        price:
+          $ref: "#/components/schemas/Money"
+        seats:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeatAvailability"
+
+    BookingStatus:
+      type: string
+      enum: [PENDING, CONFIRMED, EXPIRED, CANCELLED]
+
+    PaymentStatus:
+      type: string
+      enum: [PENDING, PAID, FAILED]
+
+    HoldRequest:
+      type: object
+      required: [showtimeId, seatIds]
+      properties:
+        showtimeId:
+          $ref: "#/components/schemas/ObjectId"
+        seatIds:
+          type: array
+          description: Seats to hold for this showtime
+          minItems: 1
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/ObjectId"
+          example: [66f3a1b2c3d4e5f6a7b8c9d1, 66f3a1b2c3d4e5f6a7b8c9d2]
+
+    BookingSeat:
+      type: object
+      required: [seatId, row, number, category, price]
+      properties:
+        seatId:
+          $ref: "#/components/schemas/ObjectId"
+        row:
+          type: string
+          example: B
+        number:
+          type: integer
+          example: 7
+        category:
+          $ref: "#/components/schemas/SeatCategory"
+        price:
+          $ref: "#/components/schemas/Money"
+
+    Payment:
+      type: object
+      required: [paymentId, method, status, amount]
+      properties:
+        paymentId:
+          type: string
+          example: pay_01J2
+        method:
+          type: string
+          enum: [MOCK]
+        status:
+          $ref: "#/components/schemas/PaymentStatus"
+        amount:
+          $ref: "#/components/schemas/Money"
+        paidAt:
+          type: [string, "null"]
+          format: date-time
+
+    Ticket:
+      type: object
+      required:
+        - id
+        - code
+        - bookingId
+        - showtimeId
+        - movieTitle
+        - theaterName
+        - startsAt
+        - seat
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        code:
+          $ref: "#/components/schemas/TicketCode"
+        bookingId:
+          $ref: "#/components/schemas/ObjectId"
+        showtimeId:
+          $ref: "#/components/schemas/ObjectId"
+        movieTitle:
+          type: string
+          example: The Grand Adventure
+        theaterName:
+          type: string
+          example: Grand Cineplex 1
+        startsAt:
+          type: string
+          format: date-time
+        seat:
+          type: object
+          required: [seatId, row, number]
+          properties:
+            seatId:
+              $ref: "#/components/schemas/ObjectId"
+            row:
+              type: string
+            number:
+              type: integer
+
+    Booking:
+      type: object
+      required:
+        - id
+        - userId
+        - showtimeId
+        - movie
+        - theater
+        - startsAt
+        - seats
+        - totalAmount
+        - status
+        - expiresAt
+        - payment
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ObjectId"
+        userId:
+          $ref: "#/components/schemas/ObjectId"
+        showtimeId:
+          $ref: "#/components/schemas/ObjectId"
+        movie:
+          $ref: "#/components/schemas/MovieSummary"
+        theater:
+          $ref: "#/components/schemas/TheaterSummary"
+        startsAt:
+          type: string
+          format: date-time
+        seats:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookingSeat"
+        totalAmount:
+          $ref: "#/components/schemas/Money"
+        status:
+          $ref: "#/components/schemas/BookingStatus"
+        expiresAt:
+          type: string
+          format: date-time
+          description: Hold deadline; past this the booking expires and locks release
+        payment:
+          $ref: "#/components/schemas/Payment"
+        tickets:
+          type: array
+          description: Present when status is CONFIRMED
+          items:
+            $ref: "#/components/schemas/Ticket"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    BookingHeld:
+      allOf:
+        - $ref: "#/components/schemas/Booking"
+        - type: object
+          required: [bookingId, seats]
+          properties:
+            bookingId:
+              $ref: "#/components/schemas/ObjectId"
+              description: Same as `id`; included for clarity at creation time
+
+    BookingPage:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+        meta:
+          $ref: "#/components/schemas/PaginationMeta"
+
+    PayRequest:
+      type: object
+      required: [paymentMethod]
+      properties:
+        paymentMethod:
+          type: string
+          enum: [MOCK]
+        simulate:
+          type: string
+          description: Mock provider outcome (defaults to SUCCESS)
+          enum: [SUCCESS, FAILURE]
+          default: SUCCESS
+
+    PaginationMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 42
+        totalPages:
+          type: integer
+          example: 3
