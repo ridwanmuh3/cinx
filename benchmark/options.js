@@ -3,6 +3,12 @@
 // Reused by all benchmark scripts so the response-metric thresholds stay
 // consistent. Individual scripts may spread this and override scenarios.
 
+import http from 'k6/http';
+
+// Treat 2xx/3xx plus 422 ("already registered", "unprocessable") as expected
+// responses so http_req_failed only counts genuine infra/server failures.
+http.setResponseCallback(http.expectedStatuses(200, 201, 202, 204, 422));
+
 // Default latency budgets (milliseconds) for the gateway REST API.
 // Tune via env: P95_BUDGET, P99_BUDGET, ERROR_RATE_BUDGET.
 const P95_BUDGET = Number(__ENV.P95_BUDGET || 500);
@@ -29,12 +35,11 @@ export const thresholds = {
   ticket_lookup_duration: [`p(95)<${P95_BUDGET}`, `p(99)<${P99_BUDGET}`],
 
   // Booking errors should stay low; contention scenarios relax this per-script.
-  hold_errors: ['count<0'],
-  pay_errors: ['count<0'],
+  hold_errors: ['count==0'],
+  pay_errors: ['count==0'],
 };
 
 // Default settings shared across scripts.
 export const baseOptions = {
   thresholds,
-  discardResponseBodies: true,
 };
