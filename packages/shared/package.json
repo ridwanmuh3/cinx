@@ -1,0 +1,20 @@
+{
+  "name": "@ticketing/shared",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write --ignore-path ../../.prettierignore .",
+    "format:check": "prettier --check --ignore-path ../../.prettierignore ."
+  },
+  "devDependencies": {
+    "@ticketing/eslint-config": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

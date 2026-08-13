@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+*.log
+.env
+.DS_Store
+test-results/
+playwright-report/
+apps/web/e2e/.auth/
+
+# AI tooling / assistants
+.cursor/
+.opencode/
+.claude/
+.aider*
+.codeium/
+graphify-out/

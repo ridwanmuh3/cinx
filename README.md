@@ -1,0 +1,230 @@
+# Ticketing Cinema
+
+Portfolio microservices cinema ticketing system: NestJS services over TCP, a
+REST gateway, PostgreSQL (database-per-service), Redis seat locks via redlock,
+and an Angular SPA.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    Web["Angular SPA :4200"]
+  end
+
+  subgraph edge [Edge]
+    GW["gateway :3000<br/>REST + JWT"]
+  end
+
+  subgraph services [TCP microservices]
+    US["user-service :3001<br/>user_db"]
+    CS["cinema-service :3002<br/>cinema_db"]
+    TS["ticket-service :3003<br/>ticket_db"]
+  end
+
+  subgraph data [Data]
+    PG[(PostgreSQL 18.4)]
+    RD[(Redis 8.10)]
+  end
+
+  Web -->|HTTP /auth /movies /bookings| GW
+  GW -->|TCP user.*| US
+  GW -->|TCP cinema.*| CS
+  GW -->|TCP booking.* payment.*| TS
+  TS -->|TCP cinema.seatMap| CS
+  US --> PG
+  CS --> PG
+  TS --> PG
+  TS -->|redlock seat:showtime:seat| RD
+```
+
+**Seat hold flow (ticket-service):**
+
+1. Validate seats with cinema-service (snapshot row/number/category).
+2. Acquire a multi-key redlock on `seat:{showtimeId}:{seatId}` (TTL 5 min).
+3. Persist `PENDING` booking + seat snapshots + mock payment row.
+4. On pay: extend lock → `CONFIRMED` + issue `TKT-XXXXXX` tickets, or fail/cancel.
+5. On TTL / cancel / reconcile: release locks; confirm after expiry → **410**.
+
+Contracts: [`docs/openapi.yaml`](docs/openapi.yaml) (REST) · [`docs/ERD.md`](docs/ERD.md) (DB).
+
+## Prerequisites
+
+- Node.js 22+ and [pnpm](https://pnpm.io/) 10 (`corepack enable`)
+- Docker + Docker Compose
+
+## Quick start
+
+```bash
+# 1. Install + start Postgres + Redis
+pnpm install
+pnpm infra:up            # postgres:5432, redis:6379
+
+# 2. Seed demo data
+pnpm --filter @ticketing/user-service seed:admin
+# admin@example.com / admin1234
+pnpm --filter @ticketing/cinema-service seed
+
+# 3. Run all apps (gateway + 3 services + web)
+pnpm build
+pnpm dev
+```
+
+| Surface      | URL                                             |
+| ------------ | ----------------------------------------------- |
+| REST gateway | http://localhost:3000/api/v1                    |
+| Health       | http://localhost:3000/api/v1/health             |
+| Angular app  | http://localhost:4200 (proxies `/api` to :3000) |
+
+TCP ports: user `3001`, cinema `3002`, ticket `3003`.
+
+## Demo walkthrough
+
+With infra up and apps running (`pnpm dev`):
+
+```bash
+pnpm demo               # = ./scripts/demo-walkthrough.sh
+```
+
+The script registers (or logs in) a demo user, lists a showtime, holds two seats,
+pays with the mock provider, and prints ticket codes. Override `GATEWAY_URL` if
+needed.
+
+## Tests
+
+```bash
+# Unit tests (all workspaces) — no live infra required
+pnpm test
+
+# Lint
+pnpm lint
+
+# ticket-service integration (live Postgres + Redis)
+pnpm infra:up
+pnpm --filter @ticketing/ticket-service test:integration
+```
+
+### Frontend E2E (Playwright, full stack)
+
+Boots all 4 services + seeded data + the Angular dev server, then drives a real
+browser through the major flows (seat selection → hold, checkout/payment →
+tickets, admin CRUD + guard).
+
+```bash
+pnpm infra:up                 # Postgres + Redis
+pnpm --filter web e2e:install # one-time: download Chromium
+pnpm --filter web e2e         # Playwright E2E
+```
+
+Specs live in `apps/web/e2e/`; the stack is (re)built and seeded automatically
+in `global-setup.ts`.
+
+Integration coverage (`bookings.integration-spec.ts`):
+
+| Case                         | Expectation                                          |
+| ---------------------------- | ---------------------------------------------------- |
+| Lock contention              | Second hold on same seat → **409**                   |
+| TTL expiry                   | Short-TTL redlock auto-releases; re-acquire succeeds |
+| Confirm after lock loss      | Deleted Redis key → **410**, booking `EXPIRED`       |
+| Confirm when already expired | DB status `EXPIRED` → **410**                        |
+
+## Benchmarks (k6)
+
+[k6](https://k6.io) load tests against the REST gateway. Requires k6 on `PATH`
+and a live, seeded stack (`pnpm docker:up && pnpm docker:seed` or `pnpm dev`
+with seeded services). See [`benchmark/README.md`](benchmark/README.md).
+
+```bash
+pnpm bench:smoke        # 1 VU sanity check
+pnpm bench:load         # ramp to N VUs, hold, ramp down (VUS=50 default)
+pnpm bench:stress       # aggressive ramp to find the breaking point
+pnpm bench:soak         # sustained load for leaks / lock-TTL drift
+pnpm bench:contention   # concurrent VUs on one seat -> redlock 409/410
+```
+
+Reports built-in HTTP metrics plus per-operation response Trends
+(`booking_hold_duration`, `booking_pay_duration`, `seat_map_duration`, …) and
+error counters, gated by latency/error-rate thresholds in
+`benchmark/options.js`.
+
+## Docker (full stack, network-isolated)
+
+Every deployable has its own `Dockerfile` (`apps/*/Dockerfile`). The root
+[`docker-compose.yml`](docker-compose.yml) orchestrates the whole stack with
+**network isolation**:
+
+- `public` network — `web` and `gateway`, the **only** services that publish
+  host ports (`web :4200`, `gateway :3000`).
+- `internal` network (`internal: true`) — gateway, the three TCP microservices,
+  Postgres and Redis. No host ports, no outbound access; services reach each
+  other and their databases only through internal DNS.
+
+```bash
+cp .env.example .env  # set JWT_SECRET + PG_PASSWORD first
+pnpm docker:up        # builds all images + starts the stack
+pnpm docker:seed      # one-shot demo data (admin + cinema catalog)
+pnpm health           # http://localhost:3000/api/v1/health
+pnpm demo             # ./scripts/demo-walkthrough.sh
+```
+
+| Surface             | URL                                              |
+| ------------------- | ------------------------------------------------ |
+| Angular app (nginx) | http://localhost:4200 (proxies `/api` → gateway) |
+| REST gateway        | http://localhost:3000/api/v1                     |
+
+Images are tagged `ghcr.io/ridwanmuh3/ticketing-cinema/<service>:${IMAGE_TAG:-latest}`.
+
+Other recipes: `pnpm docker:down`, `pnpm docker:logs`, `pnpm docker:images`,
+`pnpm docker:config`, `pnpm docker:psql`.
+
+## CI/CD
+
+Two GitHub Actions workflows (run them locally with [act](https://github.com/nektos/act)):
+
+- **`.github/workflows/ci.yaml`** — on every PR/push to `main`: pnpm install,
+  lint, unit tests, build, format check.
+- **`.github/workflows/cd.yaml`** — on push to `main`: builds all five images
+  with BuildKit and pushes them to **GitHub Container Registry**
+  (`ghcr.io/ridwanmuh3/ticketing-cinema/<service>:{sha,latest}`).
+
+CD is "build-only": it publishes images; deploy manually with
+`IMAGE_TAG=<sha> docker compose up -d`. `act` is supported — under `act`
+(`ACT=true`) the login/push steps are skipped and images are only loaded into
+the local Docker daemon.
+
+```bash
+# one-time: install act  (https://github.com/nektos/act)
+curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+pnpm ci:local   # act -W .github/workflows/ci.yaml
+pnpm cd:local   # act -W .github/workflows/cd.yaml
+```
+
+## Useful commands
+
+```bash
+pnpm infra:up / pnpm infra:down / pnpm infra:logs / pnpm health
+pnpm infra:psql   # DB=ticket_db pnpm infra:psql
+pnpm --filter @ticketing/ticket-service smoke:redis
+pnpm --filter @ticketing/ticket-service reconcile
+pnpm --filter web build
+```
+
+## Repo layout
+
+```
+apps/gateway/           REST BFF → TCP
+apps/user-service/      users, JWT, roles
+apps/cinema-service/    movies, theaters, showtimes, seats
+apps/ticket-service/    bookings, redlock, mock payment
+apps/web/               Angular standalone SPA
+packages/shared/        DTOs + TCP message patterns
+packages/eslint-config/ shared ESLint flat config
+infra/                  dev docker-compose + init.sql + seed.Dockerfile
+docker-compose.yml      full containerized stack (network-isolated)
+docs/                   OpenAPI + ERD
+scripts/                demo walkthrough
+benchmark/              k6 load-test scripts + thresholds
+.github/workflows/      CI + CD
+```
+
+See [`PLAN.md`](PLAN.md) for build phases and design notes.

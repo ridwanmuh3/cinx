@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-13T00:00:00.000Z",
+  "title": "Design System: CinX",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#08080a", "tonalRamp": ["#030304", "#08080a", "#0d0d10", "#121216", "#17171c", "#1c1c22", "#212128", "#26262e"] },
+      "ink-panel": { "role": "neutral", "displayName": "Ink Panel", "canonical": "#0e0e12", "tonalRamp": ["#050507", "#0e0e12", "#17171c", "#202027", "#292932", "#32323d", "#3b3b48", "#444453"] },
+      "ink-panel-high": { "role": "neutral", "displayName": "Ink Panel High", "canonical": "#15151b", "tonalRamp": ["#08080a", "#15151b", "#22222b", "#2f2f3b", "#3c3c4b", "#49495b", "#56566b", "#63637b"] },
+      "bone": { "role": "neutral", "displayName": "Bone", "canonical": "#ece9e1", "tonalRamp": ["#2b2a28", "#45433f", "#5f5c56", "#79756d", "#938e84", "#ada79b", "#c7c0b2", "#ece9e1"] },
+      "bone-dim": { "role": "neutral", "displayName": "Bone Dim", "canonical": "#a6a29a", "tonalRamp": ["#211f1d", "#363330", "#4a4743", "#5f5b56", "#746f69", "#89837c", "#9a948c", "#a6a29a"] },
+      "amber": { "role": "primary", "displayName": "Amber", "canonical": "#ffb52e", "tonalRamp": ["#3d2700", "#5c3a00", "#7c4e00", "#9b6200", "#bb7600", "#da8a14", "#f29e24", "#ffb52e"] },
+      "amber-hot": { "role": "primary", "displayName": "Amber Hot", "canonical": "#ffc75e", "tonalRamp": ["#3d2c00", "#5c4100", "#7c5700", "#9b6d00", "#bb8300", "#da9914", "#f2b024", "#ffc75e"] },
+      "amber-dim": { "role": "primary", "displayName": "Amber Dim", "canonical": "#d18f1b", "tonalRamp": ["#332300", "#4d3400", "#664500", "#805600", "#996700", "#b37800", "#cc8900", "#d18f1b"] },
+      "signal-green": { "role": "secondary", "displayName": "Signal Green", "canonical": "#5aff9a", "tonalRamp": ["#143d23", "#1d5b34", "#277a46", "#319858", "#3bb76a", "#45d57c", "#4fe88b", "#5aff9a"] },
+      "signal-red": { "role": "secondary", "displayName": "Signal Red", "canonical": "#ff5d5d", "tonalRamp": ["#3d1414", "#5c1e1e", "#7c2929", "#9b3333", "#bb3e3e", "#da4848", "#f25252", "#ff5d5d"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero headlines only; dot-matrix board voice." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles and the final CTA title." },
+      "title": { "displayName": "Title", "purpose": "Step and card titles in the body face; the one weight jump." },
+      "body": { "displayName": "Body", "purpose": "Long-form reading; bone-dim on ink, 8.26:1 contrast." },
+      "label": { "displayName": "Label", "purpose": "Uppercase dot-matrix board labels, column headers, chips, footer titles." }
+    },
+    "shadows": [
+      { "name": "board-drop", "value": "0 30px 80px -30px rgba(0,0,0,0.8)", "purpose": "Board panel floating off the ink background." },
+      { "name": "panel-inner", "value": "inset 0 1px 0 rgba(255,255,255,0.04)", "purpose": "Top highlight on board panels." },
+      { "name": "featured-mark", "value": "inset 2px 0 0 #ffb52e", "purpose": "Left marker on the now-showing board row." },
+      { "name": "seat-glow", "value": "0 0 12px rgba(255,181,46,0.55)", "purpose": "Selected seats glow amber." },
+      { "name": "signal-glow", "value": "0 0 6px currentColor", "purpose": "Live dots and hover states." }
+    ],
+    "motion": [
+      { "name": "ease-state", "value": "0.12s–0.22s ease", "purpose": "Seat, link, button, and icon state transitions." },
+      { "name": "ticker-scroll", "value": "36s linear infinite", "purpose": "Marquee ticker across the board." },
+      { "name": "board-in", "value": "0.5s cubic-bezier(0.2,0.7,0.3,1) forwards, staggered 90ms/row", "purpose": "Board rows reveal on load." },
+      { "name": "blink", "value": "1.4s ease-in-out infinite", "purpose": "Live dot pulse and chip blink." },
+      { "name": "faq-open", "value": "grid-template-rows 0fr->1fr 0.28s ease", "purpose": "FAQ panel expansion." }
+    ],
+    "breakpoints": [
+      { "name": "board-compact", "value": "560px" },
+      { "name": "steps-4up", "value": "860px" },
+      { "name": "hero-2col", "value": "900px" },
+      { "name": "seats-2col", "value": "960px" },
+      { "name": "footer-4up", "value": "820px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single amber action; blocky, press-ready, near-black text.",
+      "html": "<button class=\"ds-btn-primary\">Book now</button>",
+      "css": ".ds-btn-primary { background: #ffb52e; color: #120c00; font: 400 14px/1 'Schibsted Grotesk', sans-serif; letter-spacing: 0.01em; padding: 14px 24px; border: 0; border-radius: 0; cursor: pointer; transition: background 0.16s ease; } .ds-btn-primary:hover { background: #ffc75e; } .ds-btn-primary:focus-visible { outline: 2px solid #ffb52e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action; outlined in dim amber, brightens on hover.",
+      "html": "<button class=\"ds-btn-ghost\">How it works</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #ece9e1; font: 400 14px/1 'Schibsted Grotesk', sans-serif; padding: 14px 24px; border: 1px solid rgba(209,143,27,0.6); border-radius: 0; cursor: pointer; transition: box-shadow 0.16s ease; } .ds-btn-ghost:hover { box-shadow: inset 0 0 0 1px rgba(255,181,46,0.35); } .ds-btn-ghost:focus-visible { outline: 2px solid #ffb52e; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "board-status",
+      "description": "Dot-matrix live/demo signal; green pulse for live, amber for demo.",
+      "html": "<span class=\"ds-chip\"><span class=\"ds-chip-dot\"></span>LIVE</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 7px; font: 400 10px/1.4 'DotGothic16', monospace; letter-spacing: 0.14em; text-transform: uppercase; color: #5aff9a; } .ds-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; animation: ds-blink 1.4s ease-in-out infinite; } @keyframes ds-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }"
+    },
+    {
+      "name": "Board Row",
+      "kind": "custom",
+      "refersTo": "board-panel",
+      "description": "A ruled showtime row: film, time, screen, seats left, price, and Book.",
+      "html": "<div class=\"ds-board-row\"><span class=\"ds-film\">The Grand Adventure</span><span class=\"ds-mono\">6:00 PM</span><span class=\"ds-mono ds-dim\">AUD 01</span><span class=\"ds-mono ds-green\">94</span><span class=\"ds-mono\">Rp 50.000</span><button class=\"ds-book\">Book</button></div>",
+      "css": ".ds-board-row { display: grid; grid-template-columns: minmax(0,1fr) 64px 92px 52px 84px 62px; gap: 10px; align-items: center; padding: 10px 2px; border-bottom: 1px solid rgba(236,233,225,0.07); font-family: 'Schibsted Grotesk', sans-serif; color: #ece9e1; background: transparent; } .ds-board-row:first-child { background: linear-gradient(90deg, rgba(255,181,46,0.12), transparent 62%); box-shadow: inset 2px 0 0 #ffb52e; } .ds-mono { font-family: 'DotGothic16', monospace; font-size: 13px; } .ds-dim { color: #a6a29a; } .ds-green { color: #5aff9a; } .ds-book { font: 400 11px/1 'Schibsted Grotesk', sans-serif; padding: 6px 10px; background: #ffb52e; color: #120c00; border: 0; border-radius: 0; cursor: pointer; }"
+    },
+    {
+      "name": "Seat",
+      "kind": "button",
+      "refersTo": "seat-available",
+      "description": "Discrete seat button; states swap outline, fill, and glow.",
+      "html": "<button class=\"ds-seat\"></button><button class=\"ds-seat ds-seat--selected\"></button>",
+      "css": ".ds-seat { width: 22px; height: 24px; border: 1px solid rgba(236,233,225,0.14); background: transparent; border-radius: 0; cursor: pointer; transition: border-color 0.12s ease, background-color 0.12s ease, box-shadow 0.12s ease; } .ds-seat:hover { border-color: #ffb52e; box-shadow: 0 0 8px rgba(255,181,46,0.25); } .ds-seat--selected { background: #ffb52e; border-color: #ffb52e; box-shadow: 0 0 12px rgba(255,181,46,0.55); } .ds-seat:focus-visible { outline: 2px solid #ffb52e; outline-offset: 1px; }"
+    },
+    {
+      "name": "Board Panel Frame",
+      "kind": "custom",
+      "refersTo": "board-panel",
+      "description": "The signature board: corner brackets, gradient panel, ticker, hold countdown.",
+      "html": "<div class=\"ds-board\"><div class=\"ds-board-head\"><span class=\"ds-board-title\">Tonight at CinX</span></div><div class=\"ds-hold\">Seat G7 held for you <span class=\"ds-count\">4:51</span></div></div>",
+      "css": ".ds-board { position: relative; background: linear-gradient(180deg, #15151b, #0e0e12); border: 1px solid rgba(236,233,225,0.14); padding: 18px; box-shadow: 0 30px 80px -30px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.04); } .ds-board::before, .ds-board::after { content: ''; position: absolute; width: 14px; height: 14px; border: 1px solid rgba(209,143,27,0.5); } .ds-board::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; } .ds-board::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; } .ds-board-title { font: 400 13px/1 'DotGothic16', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: #ece9e1; } .ds-hold { display: flex; align-items: center; gap: 14px; padding: 14px 2px 12px; border-bottom: 1px solid rgba(236,233,225,0.07); font: 400 12px/1 'DotGothic16', monospace; letter-spacing: 0.06em; text-transform: uppercase; color: #ffb52e; } .ds-count { margin-left: auto; font-size: 22px; color: #ece9e1; text-shadow: 0 0 18px rgba(255,181,46,0.4); font-variant-numeric: tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Showtime Board",
+    "overview": "CinX is a cinema ticketing service where the schedule board is the product, not a decoration. Every surface is a lit departure board at the cinema: near-black matte panels, amber dot-matrix lettering, bone-white body text, phosphor-green 'live' marks, and rows, columns, and tickers ruled with the precision of an arrivals display. The hero refuses the dark-poster-grid cinema trope; instead the hero IS a live showtime board with a ticking seat-hold countdown, so a first-time visitor reads the entire offer in one scan — this books seats, holds them for five minutes, and never double-sells. The density is informational and mechanical: uppercase dot-matrix labels, ruled column headers, ticker tape, blinking live dots, corner-bracketed panels. Personality comes from the board's own grammar (glow, pulse, countdown, NOW chips), never from decorative flourish. The palette is night-cinema dark with a single warm amber accent that carries all primary actions, a phosphor green reserved for 'live/available' signals, and bone-white for text on the matte black.",
+    "keyCharacteristics": [
+      "Every surface is a board: panels carry the corner-bracket motif, ruled borders, and dot-matrix labels of a departure display.",
+      "Amber is the single action color; it never competes with the green 'live' signal.",
+      "Type is two voices: DotGothic16 for all data/board/labels, Schibsted Grotesk for comfortable long-form body reading.",
+      "Sharp corners throughout (0 radius); depth comes from soft ambient shadow and glow, never from bevels or offset block shadows.",
+      "Motion is the board's own: ticker scroll, dot-pulse blink, hold countdown, row reveal, cursor blink — one authored moment per mechanism, never scattered."
+    ],
+    "rules": [
+      { "name": "The Single Amber Rule", "body": "Amber is the only action color and it is used sparingly — primary buttons, selected/held states, the brand mark. When something must 'press' or is 'held', it is amber; everything else stays neutral. Rarity is the point.", "section": "colors" },
+      { "name": "The Green Means Live Rule", "body": "Phosphor green is a signal, never an action. Green says 'this is happening now / this seat is available'; it never carries a button.", "section": "colors" },
+      { "name": "The Board Voice Rule", "body": "Numbers, times, prices, seat counts, ticket codes, and all uppercase labels are set in DotGothic16 with tabular-nums behavior where they tick. The display face is never used for body-length copy, and the body face is never used for data.", "section": "typography" },
+      { "name": "The Halo Not Shadow Rule", "body": "Light is a colored glow with zero offset; depth is a soft blur with offset. A hard offset block shadow is foreign to this world and never appears — this is not neobrutalist, and a costume block-shadow is a violation.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do set every number, time, price, seat label, and uppercase board label in DotGothic16.",
+      "Do reserve amber for the single action or the held/selected state, and green for live/available signals.",
+      "Do keep corners at 0 radius and rule surfaces with 1px line borders and the corner-bracket motif.",
+      "Do express light as zero-offset colored glow, and depth as soft offset shadow with blur."
+    ],
+    "donts": [
+      "Don't use a dark-poster-grid cinema hero — the schedule board IS the hero, with a live hold countdown.",
+      "Don't use hard offset block shadows, bevels, or embossed material — the world is matte boards, not stamped metal.",
+      "Don't use gradient text, glass, or blur as decoration; the only blur is the board bar's backdrop and text glows.",
+      "Don't put an eyebrow/kicker above a heading — the board label above a title is part of the board, never a section label.",
+      "Don't use a system display face (Impact, Arial Black, platform sans) — DotGothic16 is the board voice.",
+      "Don't use glyph icons or emoji — all icons are authored SVG in one 1.3–1.5px stroke weight."
+    ]
+  }
+}
