@@ -58,16 +58,11 @@ function toRpcPayload(exception: unknown): RpcErrorPayload {
     if (typeof e.statusCode === 'number') return e as RpcErrorPayload;
     if (typeof e.getResponse === 'function') {
       const body = e.getResponse();
-      if (
-        typeof body === 'object' &&
-        body !== null &&
-        'statusCode' in body
-      ) {
+      if (typeof body === 'object' && body !== null && 'statusCode' in body) {
         return body as RpcErrorPayload;
       }
     }
-    if (typeof e.message === 'string')
-      return rpcErrorPayload(500, e.message);
+    if (typeof e.message === 'string') return rpcErrorPayload(500, e.message);
   }
   return rpcErrorPayload(500, 'Internal server error');
 }

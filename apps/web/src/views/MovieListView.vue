@@ -53,7 +53,12 @@ async function load(): Promise<void> {
       <p class="bx-empty-title">No movies found</p>
     </div>
     <div class="bx-grid">
-      <router-link v-for="movie in movies" :key="movie.id" :to="`/movies/${movie.id}`" class="bx-card">
+      <router-link
+        v-for="movie in movies"
+        :key="movie.id"
+        :to="`/movies/${movie.id}`"
+        class="bx-card"
+      >
         <div class="bx-card-poster">
           <img
             v-if="movie.posterUrl"
@@ -67,7 +72,9 @@ async function load(): Promise<void> {
         </div>
         <div class="bx-card-body">
           <h2 class="bx-card-title">{{ movie.title }}</h2>
-          <p class="bx-card-meta bx-data">{{ movie.durationMinutes }} min · {{ movie.ageRating }}</p>
+          <p class="bx-card-meta bx-data">
+            {{ movie.durationMinutes }} min · {{ movie.ageRating }}
+          </p>
           <p class="bx-card-syn">{{ movie.synopsis }}</p>
         </div>
       </router-link>

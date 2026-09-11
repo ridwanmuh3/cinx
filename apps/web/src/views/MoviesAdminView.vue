@@ -32,11 +32,21 @@ const form = ref(emptyForm());
 
 const rules: FormRules = {
   title: [{ required: true, max: 200, message: 'Title is required.', trigger: ['blur', 'input'] }],
-  genres: [{ required: true, message: 'At least one genre is required.', trigger: ['blur', 'input'] }],
-  durationMinutes: [
-    { required: true, type: 'number', min: 1, message: 'Enter a positive duration.', trigger: ['blur', 'change'] },
+  genres: [
+    { required: true, message: 'At least one genre is required.', trigger: ['blur', 'input'] },
   ],
-  releaseDate: [{ required: true, message: 'Release date is required.', trigger: ['blur', 'change'] }],
+  durationMinutes: [
+    {
+      required: true,
+      type: 'number',
+      min: 1,
+      message: 'Enter a positive duration.',
+      trigger: ['blur', 'change'],
+    },
+  ],
+  releaseDate: [
+    { required: true, message: 'Release date is required.', trigger: ['blur', 'change'] },
+  ],
   synopsis: [{ required: true, message: 'Synopsis is required.', trigger: ['blur', 'input'] }],
 };
 
@@ -68,7 +78,10 @@ async function load(): Promise<void> {
   }
 }
 
-const ageOptions = (['SU', 'BO', '13+', '17+', '21+'] as const).map((v) => ({ label: v, value: v }));
+const ageOptions = (['SU', 'BO', '13+', '17+', '21+'] as const).map((v) => ({
+  label: v,
+  value: v,
+}));
 
 function startEdit(movie: Movie): void {
   editing.value = movie;
@@ -155,24 +168,28 @@ const columns: DataTableColumns<Movie> = [
     key: 'durationMinutes',
     render: (row) => h('span', { class: 'bx-td-data' }, `${row.durationMinutes} min`),
   },
-  { title: 'Rating', key: 'ageRating', render: (row) => h('span', { class: 'bx-td-data' }, row.ageRating) },
+  {
+    title: 'Rating',
+    key: 'ageRating',
+    render: (row) => h('span', { class: 'bx-td-data' }, row.ageRating),
+  },
   {
     title: 'Actions',
     key: 'actions',
     align: 'right',
     render: (row) =>
-      h(
-        'div',
-        { class: 'flex flex-wrap justify-end gap-2' },
-        [
-          h(NButton, { size: 'small', quaternary: true, onClick: () => startEdit(row) }, { default: () => 'Edit' }),
-          h(
-            NButton,
-            { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
-            { default: () => 'Delete' },
-          ),
-        ],
-      ),
+      h('div', { class: 'flex flex-wrap justify-end gap-2' }, [
+        h(
+          NButton,
+          { size: 'small', quaternary: true, onClick: () => startEdit(row) },
+          { default: () => 'Edit' },
+        ),
+        h(
+          NButton,
+          { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
+          { default: () => 'Delete' },
+        ),
+      ]),
   },
 ];
 </script>
@@ -205,7 +222,11 @@ const columns: DataTableColumns<Movie> = [
         />
       </n-form-item>
       <n-form-item label="Age rating" path="ageRating" data-testid="mv-rating">
-        <n-select v-model:value="form.ageRating" :options="ageOptions" data-testid="mv-rating-select" />
+        <n-select
+          v-model:value="form.ageRating"
+          :options="ageOptions"
+          data-testid="mv-rating-select"
+        />
       </n-form-item>
       <n-form-item label="Release date" path="releaseDate" data-testid="mv-release">
         <n-date-picker
@@ -218,7 +239,11 @@ const columns: DataTableColumns<Movie> = [
         />
       </n-form-item>
       <n-form-item label="Poster URL" path="posterUrl" data-testid="mv-poster">
-        <n-input v-model:value="form.posterUrl" placeholder="https://…" data-testid="mv-poster-input" />
+        <n-input
+          v-model:value="form.posterUrl"
+          placeholder="https://…"
+          data-testid="mv-poster-input"
+        />
       </n-form-item>
       <n-form-item class="bx-span-2" label="Synopsis" path="synopsis" data-testid="mv-synopsis">
         <n-input

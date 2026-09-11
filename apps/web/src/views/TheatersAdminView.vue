@@ -20,9 +20,29 @@ const form = ref({ name: '', address: '', rows: 8, cols: 12 });
 
 const rules: FormRules = {
   name: [{ required: true, max: 100, message: 'Name is required.', trigger: ['blur', 'input'] }],
-  address: [{ required: true, max: 300, message: 'Address is required.', trigger: ['blur', 'input'] }],
-  rows: [{ required: true, type: 'number', min: 1, max: 26, message: 'Enter 1–26 rows.', trigger: ['blur', 'change'] }],
-  cols: [{ required: true, type: 'number', min: 1, max: 20, message: 'Enter 1–20 columns.', trigger: ['blur', 'change'] }],
+  address: [
+    { required: true, max: 300, message: 'Address is required.', trigger: ['blur', 'input'] },
+  ],
+  rows: [
+    {
+      required: true,
+      type: 'number',
+      min: 1,
+      max: 26,
+      message: 'Enter 1–26 rows.',
+      trigger: ['blur', 'change'],
+    },
+  ],
+  cols: [
+    {
+      required: true,
+      type: 'number',
+      min: 1,
+      max: 20,
+      message: 'Enter 1–20 columns.',
+      trigger: ['blur', 'change'],
+    },
+  ],
 };
 
 const saving = ref(false);
@@ -111,17 +131,13 @@ const columns: DataTableColumns<Theater> = [
     key: 'actions',
     align: 'right',
     render: (row) =>
-      h(
-        'div',
-        { class: 'flex flex-wrap justify-end gap-2' },
-        [
-          h(
-            NButton,
-            { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
-            { default: () => 'Delete' },
-          ),
-        ],
-      ),
+      h('div', { class: 'flex flex-wrap justify-end gap-2' }, [
+        h(
+          NButton,
+          { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
+          { default: () => 'Delete' },
+        ),
+      ]),
   },
 ];
 </script>

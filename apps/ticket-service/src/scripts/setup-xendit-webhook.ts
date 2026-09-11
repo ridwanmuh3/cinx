@@ -36,7 +36,10 @@ function assertConfigured(name: string, value: string | undefined): string {
 
 async function main(): Promise<void> {
   const secretKey = assertConfigured('XENDIT_SECRET_KEY', XENDIT_SECRET_KEY);
-  const webhookUrl = assertConfigured('XENDIT_WEBHOOK_URL', process.env.XENDIT_WEBHOOK_URL);
+  const webhookUrl = assertConfigured(
+    'XENDIT_WEBHOOK_URL',
+    process.env.XENDIT_WEBHOOK_URL,
+  );
 
   // Basic auth: secret key as username, empty password (trailing colon).
   const auth = `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`;
@@ -55,7 +58,9 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(`[xendit-setup] Registering ${WEBHOOK_TYPE} webhook → ${endpoint.origin}${endpoint.pathname}`);
+  console.log(
+    `[xendit-setup] Registering ${WEBHOOK_TYPE} webhook → ${endpoint.origin}${endpoint.pathname}`,
+  );
 
   const res = await fetch(`${apiUrl}/callback_urls/${WEBHOOK_TYPE}`, {
     method: 'POST',
@@ -87,7 +92,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`[xendit-setup] Registered OK (environment: ${payload.environment})`);
+  console.log(
+    `[xendit-setup] Registered OK (environment: ${payload.environment})`,
+  );
   console.log(`[xendit-setup] URL: ${payload.url}`);
 
   // Cross-check the verification token. Never print either value.
@@ -109,10 +116,15 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  console.log('[xendit-setup] XENDIT_WEBHOOK_TOKEN matches — webhook fully configured.');
+  console.log(
+    '[xendit-setup] XENDIT_WEBHOOK_TOKEN matches — webhook fully configured.',
+  );
 }
 
 main().catch((err: unknown) => {
-  console.error('[xendit-setup] FAILED', err instanceof Error ? err.message : err);
+  console.error(
+    '[xendit-setup] FAILED',
+    err instanceof Error ? err.message : err,
+  );
   process.exit(1);
 });

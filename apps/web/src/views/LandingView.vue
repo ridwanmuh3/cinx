@@ -29,10 +29,38 @@ const GRID_ROWS = 8;
 const GRID_COLS = 12;
 
 const FALLBACK_ROWS: BoardRow[] = [
-  { film: 'The Grand Adventure', time: '6:00 PM', screen: 'AUD 01', seatsLeft: 94, price: 50000, showtimeId: null },
-  { film: 'The Grand Adventure', time: '9:00 PM', screen: 'AUD 01', seatsLeft: 61, price: 50000, showtimeId: null },
-  { film: 'Cinta Pertama', time: '7:30 PM', screen: 'AUD 02', seatsLeft: 88, price: 45000, showtimeId: null },
-  { film: 'Komedi Nasional', time: '8:15 PM', screen: 'AUD 03', seatsLeft: 96, price: 50000, showtimeId: null },
+  {
+    film: 'The Grand Adventure',
+    time: '6:00 PM',
+    screen: 'AUD 01',
+    seatsLeft: 94,
+    price: 50000,
+    showtimeId: null,
+  },
+  {
+    film: 'The Grand Adventure',
+    time: '9:00 PM',
+    screen: 'AUD 01',
+    seatsLeft: 61,
+    price: 50000,
+    showtimeId: null,
+  },
+  {
+    film: 'Cinta Pertama',
+    time: '7:30 PM',
+    screen: 'AUD 02',
+    seatsLeft: 88,
+    price: 45000,
+    showtimeId: null,
+  },
+  {
+    film: 'Komedi Nasional',
+    time: '8:15 PM',
+    screen: 'AUD 03',
+    seatsLeft: 96,
+    price: 50000,
+    showtimeId: null,
+  },
 ];
 const FALLBACK_FEATURED = 'The Grand Adventure';
 
@@ -169,7 +197,7 @@ const countdown = computed(() => {
 let timer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
-  timer = setInterval(() => seconds.value = seconds.value > 0 ? seconds.value - 1 : 0, 1000);
+  timer = setInterval(() => (seconds.value = seconds.value > 0 ? seconds.value - 1 : 0), 1000);
 });
 
 onBeforeUnmount(() => {
@@ -178,7 +206,11 @@ onBeforeUnmount(() => {
 
 // ---------- static content ----------
 
-const features = ['5-minute seat holds', 'No double-booking, ever', 'TKT-XXXXXX tickets in seconds'];
+const features = [
+  '5-minute seat holds',
+  'No double-booking, ever',
+  'TKT-XXXXXX tickets in seconds',
+];
 
 const steps = [
   {
@@ -220,8 +252,18 @@ const miniMapRows = computed(() => {
 });
 
 const tiers = [
-  { name: 'REGULAR', rows: 'Rows A–F', note: 'The great-value seats, front and centre.', price: 'Rp 50.000 / seat' },
-  { name: 'VIP', rows: 'Row G', note: 'Extra legroom and the best sightlines in the house.', price: 'Rp 50.000 / seat' },
+  {
+    name: 'REGULAR',
+    rows: 'Rows A–F',
+    note: 'The great-value seats, front and centre.',
+    price: 'Rp 50.000 / seat',
+  },
+  {
+    name: 'VIP',
+    rows: 'Row G',
+    note: 'Extra legroom and the best sightlines in the house.',
+    price: 'Rp 50.000 / seat',
+  },
   {
     name: 'COUPLE',
     rows: 'Row H & edge pairs',
@@ -405,7 +447,9 @@ function formatPrice(amount: number): string {
       <section class="section" id="how">
         <div class="section-head">
           <h2 class="section-title">Book in four steps</h2>
-          <p class="section-sub">From first glance to ticket in hand — comfortably under two minutes.</p>
+          <p class="section-sub">
+            From first glance to ticket in hand — comfortably under two minutes.
+          </p>
         </div>
         <div class="steps">
           <article v-for="step in steps" :key="step.num" class="step">
@@ -459,7 +503,11 @@ function formatPrice(amount: number): string {
         <div class="seats-layout">
           <div class="seatmap">
             <div class="screen-arc" aria-hidden="true">Screen</div>
-            <div class="seat-grid" role="group" aria-label="Seat map — tap an open seat to select it">
+            <div
+              class="seat-grid"
+              role="group"
+              aria-label="Seat map — tap an open seat to select it"
+            >
               <div v-for="row in seatRows" :key="row[0].row" class="seat-row">
                 <span class="seat-row-label" aria-hidden="true">{{ row[0].row }}</span>
                 <button
@@ -476,22 +524,22 @@ function formatPrice(amount: number): string {
                     'seat--accessible': seat.accessible,
                   }"
                   :disabled="isLocked(seat)"
-                  :aria-label="
-                    `Row ${seat.row}, seat ${seat.number}, ${seat.category.toLowerCase()}${seat.accessible ? ', accessible' : ''}${
-                      isSelected(seat.key)
-                        ? ', selected'
-                        : isLocked(seat)
-                          ? ', ' + seat.state
-                          : ', available'
-                    }`
-                  "
+                  :aria-label="`Row ${seat.row}, seat ${seat.number}, ${seat.category.toLowerCase()}${seat.accessible ? ', accessible' : ''}${
+                    isSelected(seat.key)
+                      ? ', selected'
+                      : isLocked(seat)
+                        ? ', ' + seat.state
+                        : ', available'
+                  }`"
                   :aria-pressed="isSelected(seat.key)"
                   @click="toggleSeat(seat)"
                 ></button>
               </div>
             </div>
             <div class="legend">
-              <span class="legend-item"><span class="swatch swatch--available"></span>Available</span>
+              <span class="legend-item"
+                ><span class="swatch swatch--available"></span>Available</span
+              >
               <span class="legend-item"><span class="swatch swatch--selected"></span>Selected</span>
               <span class="legend-item"><span class="swatch swatch--held"></span>Held</span>
               <span class="legend-item"><span class="swatch swatch--booked"></span>Booked</span>
@@ -531,7 +579,12 @@ function formatPrice(amount: number): string {
           <p class="section-sub">If it's not here, My Bookings keeps the full record.</p>
         </div>
         <div class="faq">
-          <div v-for="(item, i) in faqs" :key="i" class="faq-item" :class="{ 'faq-item--open': openFaq === i }">
+          <div
+            v-for="(item, i) in faqs"
+            :key="i"
+            class="faq-item"
+            :class="{ 'faq-item--open': openFaq === i }"
+          >
             <button
               type="button"
               class="faq-q"

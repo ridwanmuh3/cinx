@@ -21,8 +21,18 @@ describe('ResendService', () => {
       movieTitle: 'The Grand Adventure',
       theaterName: 'Grand Cineplex 1',
       startsAt: '2026-08-20T18:00:00.000Z',
-      seats: [{ seatId: 's1', rowLabel: 'A', seatNumber: 7, category: 'REGULAR', priceAmount: 50000 }],
-      tickets: [{ code: 'TKT-000001', seatId: 's1', rowLabel: 'A', seatNumber: 7 }],
+      seats: [
+        {
+          seatId: 's1',
+          rowLabel: 'A',
+          seatNumber: 7,
+          category: 'REGULAR',
+          priceAmount: 50000,
+        },
+      ],
+      tickets: [
+        { code: 'TKT-000001', seatId: 's1', rowLabel: 'A', seatNumber: 7 },
+      ],
       confirmedAt: '2026-08-14T10:00:00.000Z',
     } as BookingConfirmationData);
     expect(res.accepted).toBe(true);

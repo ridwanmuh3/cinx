@@ -98,7 +98,9 @@ export function themeOverrides(theme: Theme): GlobalThemeOverrides {
       caretColor: dark ? '#FFB52E' : '#9A6F00',
       borderHover: dark ? 'rgba(236, 233, 225, 0.3)' : 'rgba(29, 26, 18, 0.32)',
       borderFocus: dark ? '#FFB52E' : '#9A6F00',
-      boxShadowFocus: dark ? '0 0 0 1px rgba(255, 181, 46, 0.35)' : '0 0 0 1px rgba(154, 111, 0, 0.4)',
+      boxShadowFocus: dark
+        ? '0 0 0 1px rgba(255, 181, 46, 0.35)'
+        : '0 0 0 1px rgba(154, 111, 0, 0.4)',
     },
     DataTable: {
       thColor: dark ? '#15151B' : '#FFFFFF',
@@ -137,7 +139,9 @@ export function themeOverrides(theme: Theme): GlobalThemeOverrides {
         InternalSelection: {
           borderHover: dark ? 'rgba(236, 233, 225, 0.3)' : 'rgba(29, 26, 18, 0.32)',
           borderFocus: dark ? '#FFB52E' : '#9A6F00',
-          boxShadowFocus: dark ? '0 0 0 1px rgba(255, 181, 46, 0.35)' : '0 0 0 1px rgba(154, 111, 0, 0.4)',
+          boxShadowFocus: dark
+            ? '0 0 0 1px rgba(255, 181, 46, 0.35)'
+            : '0 0 0 1px rgba(154, 111, 0, 0.4)',
           caretColor: dark ? '#FFB52E' : '#9A6F00',
         },
       },

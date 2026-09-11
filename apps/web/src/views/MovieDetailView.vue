@@ -79,7 +79,9 @@ const firstShowtimeId = computed(() => showtimes.value[0]?.id ?? null);
       <div>
         <h1 class="bx-h1">{{ movie.title }}</h1>
         <div class="bx-detail-meta">
-          <span class="bx-data text-sm text-bone-dim">{{ movie.durationMinutes }} min · {{ movie.ageRating }}</span>
+          <span class="bx-data text-sm text-bone-dim"
+            >{{ movie.durationMinutes }} min · {{ movie.ageRating }}</span
+          >
           <span class="bx-data text-sm text-bone-dim">·</span>
           <span class="bx-chip">Releases {{ formatMediumDate(movie.releaseDate) }}</span>
         </div>

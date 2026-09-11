@@ -70,9 +70,7 @@ function startPolling(): void {
         // no webhook callback URL is registered. Falls back to a plain
         // refresh if the provider check fails.
         const fresh =
-          pollTicks++ > 0
-            ? await api.syncPayment(id.value)
-            : await api.getBooking(id.value);
+          pollTicks++ > 0 ? await api.syncPayment(id.value) : await api.getBooking(id.value);
         booking.value = fresh;
         if (fresh.status !== 'PENDING') stopPolling();
       } catch {

@@ -507,7 +507,12 @@ export class BookingsService {
   async webhook(dto: PaymentWebhookRequest): Promise<Empty> {
     // The gateway may use any of the alias field names (proto JSON mapping);
     // all carry the same verified callback token + raw JSON body.
-    const signature = dto.signature ?? dto.callbackToken ?? dto.callback_token ?? dto.xCallbackToken ?? '';
+    const signature =
+      dto.signature ??
+      dto.callbackToken ??
+      dto.callback_token ??
+      dto.xCallbackToken ??
+      '';
     const rawBody = dto.body ?? dto.rawBody ?? dto.payload ?? '';
     this.payment.verifySignature(signature);
     const cb = this.payment.parseCallback(rawBody);
@@ -708,7 +713,10 @@ export class BookingsService {
       // Re-throw known RPC errors (e.g. 502 provider failure) as-is.
       if (err instanceof RpcException) throw err;
       throw new RpcException(
-        rpcErrorPayload(502, 'Payment provider is unavailable, try again later'),
+        rpcErrorPayload(
+          502,
+          'Payment provider is unavailable, try again later',
+        ),
       );
     }
 
