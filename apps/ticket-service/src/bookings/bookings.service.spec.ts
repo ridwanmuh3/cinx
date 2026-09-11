@@ -815,7 +815,7 @@ describe('BookingsService', () => {
         userId: 'u1',
       });
       expect(result.items).toHaveLength(2);
-      expect(result.items[0].code).toMatch(/^TKT-[A-Z2-9]{6}$/);
+      expect(result.items[0].code).toMatch(/^TKT-[A-Z2-9]{8}$/);
       expect(result.items[0]).toEqual(
         expect.objectContaining({
           bookingId: 'b1',
