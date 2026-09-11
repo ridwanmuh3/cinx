@@ -39,7 +39,9 @@ export async function validateDto(
   input: unknown,
   cls: ClassConstructor<unknown>,
 ): Promise<void> {
-  const instance = plainToInstance(cls, input, { excludeExtraneousValues: false });
+  const instance = plainToInstance(cls, input, {
+    excludeExtraneousValues: false,
+  });
   const errors = await validate(instance as object);
   if (errors.length) {
     throw new RpcException(

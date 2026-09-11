@@ -29,7 +29,15 @@ const rules: FormRules = {
   movieId: [{ required: true, message: 'Choose a movie.', trigger: ['blur', 'change'] }],
   theaterId: [{ required: true, message: 'Choose a theater.', trigger: ['blur', 'change'] }],
   startsAt: [{ required: true, message: 'Choose a start time.', trigger: ['blur', 'change'] }],
-  priceAmount: [{ required: true, type: 'number', min: 0, message: 'Enter a price of 0 or more.', trigger: ['blur', 'change'] }],
+  priceAmount: [
+    {
+      required: true,
+      type: 'number',
+      min: 0,
+      message: 'Enter a price of 0 or more.',
+      trigger: ['blur', 'change'],
+    },
+  ],
 };
 
 const saving = ref(false);
@@ -114,7 +122,11 @@ function remove(showtime: Showtime): void {
 }
 
 const columns: DataTableColumns<Showtime> = [
-  { title: 'Movie', key: 'movie', render: (row) => h('span', { class: 'bx-td-data' }, row.movie.title) },
+  {
+    title: 'Movie',
+    key: 'movie',
+    render: (row) => h('span', { class: 'bx-td-data' }, row.movie.title),
+  },
   {
     title: 'Theater',
     key: 'theater',
@@ -135,17 +147,13 @@ const columns: DataTableColumns<Showtime> = [
     key: 'actions',
     align: 'right',
     render: (row) =>
-      h(
-        'div',
-        { class: 'flex flex-wrap justify-end gap-2' },
-        [
-          h(
-            NButton,
-            { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
-            { default: () => 'Delete' },
-          ),
-        ],
-      ),
+      h('div', { class: 'flex flex-wrap justify-end gap-2' }, [
+        h(
+          NButton,
+          { size: 'small', type: 'error', quaternary: true, onClick: () => remove(row) },
+          { default: () => 'Delete' },
+        ),
+      ]),
   },
 ];
 </script>

@@ -35,7 +35,8 @@ export const RMQ = {
   URL: process.env.RMQ_URL ?? 'amqp://rabbitmq:5672',
   EXCHANGE: process.env.RMQ_EXCHANGE ?? 'ticketing.events',
   EXCHANGE_TYPE: process.env.RMQ_EXCHANGE_TYPE ?? 'fanout',
-  NOTIFICATION_QUEUE: process.env.RMQ_NOTIFICATION_QUEUE ?? 'notification.queue',
+  NOTIFICATION_QUEUE:
+    process.env.RMQ_NOTIFICATION_QUEUE ?? 'notification.queue',
   INTERNAL_EXCHANGE: process.env.RMQ_INTERNAL_EXCHANGE ?? 'ticketing.internal',
 } as const;
 

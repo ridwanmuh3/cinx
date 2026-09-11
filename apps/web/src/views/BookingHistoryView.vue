@@ -89,7 +89,9 @@ function statusChip(status: string): string {
       <p class="bx-empty-copy">
         Browse now-showing movies and pick your seats — they'll be held for you while you pay.
       </p>
-      <router-link to="/movies" class="bx-btn bx-btn--primary bx-btn--sm">Browse movies</router-link>
+      <router-link to="/movies" class="bx-btn bx-btn--primary bx-btn--sm"
+        >Browse movies</router-link
+      >
     </div>
   </template>
 
@@ -112,10 +114,15 @@ function statusChip(status: string): string {
                 class="bx-btn bx-btn--primary bx-btn--sm"
                 >Pay</router-link
               >
-              <n-button size="small" quaternary class="bx-ctl-btn" @click="cancel(b)">Cancel</n-button>
+              <n-button size="small" quaternary class="bx-ctl-btn" @click="cancel(b)"
+                >Cancel</n-button
+              >
             </template>
             <template v-else-if="b.status === 'CONFIRMED'">
-              <router-link :to="`/bookings/confirm/${b.id}`" class="bx-btn bx-btn--ghost bx-btn--sm">
+              <router-link
+                :to="`/bookings/confirm/${b.id}`"
+                class="bx-btn bx-btn--ghost bx-btn--sm"
+              >
                 View tickets
               </router-link>
             </template>

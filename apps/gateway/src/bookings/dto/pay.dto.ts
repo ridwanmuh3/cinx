@@ -1,4 +1,10 @@
-import { IsEmail, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * Xendit POSTs a flat JSON invoice callback. It must reach

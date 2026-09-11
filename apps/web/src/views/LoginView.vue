@@ -14,7 +14,9 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 const rules: FormRules = {
-  email: [{ required: true, type: 'email', message: 'Enter a valid email.', trigger: ['blur', 'input'] }],
+  email: [
+    { required: true, type: 'email', message: 'Enter a valid email.', trigger: ['blur', 'input'] },
+  ],
   password: [{ required: true, message: 'Password is required.', trigger: ['blur', 'input'] }],
 };
 
@@ -59,7 +61,12 @@ async function onSubmit(): Promise<void> {
         <n-form-item class="bx-span-2" label="Email" path="email" data-testid="login-email">
           <n-input v-model:value="form.email" placeholder="you@example.com" autocomplete="email" />
         </n-form-item>
-        <n-form-item class="bx-span-2" label="Password" path="password" data-testid="login-password">
+        <n-form-item
+          class="bx-span-2"
+          label="Password"
+          path="password"
+          data-testid="login-password"
+        >
           <n-input
             v-model:value="form.password"
             type="password"

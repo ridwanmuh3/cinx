@@ -27,7 +27,12 @@ const auth = useAuthStore();
         >
           {{ auth.user?.name || auth.user?.email }}
         </span>
-        <button v-if="auth.isAuthenticated" class="bx-bar-link-ghost" type="button" @click="auth.logout()">
+        <button
+          v-if="auth.isAuthenticated"
+          class="bx-bar-link-ghost"
+          type="button"
+          @click="auth.logout()"
+        >
           Logout
         </button>
         <router-link v-else class="bx-bar-link-ghost" to="/login">Login</router-link>

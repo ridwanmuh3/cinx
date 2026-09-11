@@ -77,7 +77,9 @@ export interface TicketServiceStub {
   Cancel(req: BookingCancelRequest): Observable<BookingDto>;
   Get(req: BookingGetRequest): Observable<BookingDto>;
   List(req: BookingListRequest): Observable<PaginatedBookings>;
-  Availability(req: BookingAvailabilityRequest): Observable<BookingAvailabilityResponse>;
+  Availability(
+    req: BookingAvailabilityRequest,
+  ): Observable<BookingAvailabilityResponse>;
   Charge(req: PaymentChargeRequest): Observable<PaymentChargeResponse>;
   Confirm(req: PaymentConfirmRequest): Observable<BookingDto>;
   Webhook(req: PaymentWebhookRequest): Observable<Empty>;

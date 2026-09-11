@@ -1,8 +1,14 @@
 ---
 version: 1
-slug: "apps-web"
-primary_target: "apps/web"
-related_targets: ["apps/web/src/app/features/landing/landing.html","apps/web/src/app/features/landing/landing.component.ts","apps/web/src/landing.css","apps/web/src/index.html"]
+slug: 'apps-web'
+primary_target: 'apps/web'
+related_targets:
+  [
+    'apps/web/src/app/features/landing/landing.html',
+    'apps/web/src/app/features/landing/landing.component.ts',
+    'apps/web/src/landing.css',
+    'apps/web/src/index.html',
+  ]
 ---
 
 # Landing surface brief — CinX (Showtime Board world)
