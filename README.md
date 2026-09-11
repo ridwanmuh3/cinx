@@ -152,12 +152,87 @@ booking confirmation. Configure it once per environment:
 
 ### Local development (tunneling)
 
-Xendit must be able to reach your gateway over public HTTPS. For local stacks,
-expose it with a tunnel, then point `XENDIT_WEBHOOK_URL` at the printed URL:
+Xendit must be able to reach your gateway over public HTTPS — `localhost`,
+`127.0.0.1` and private IPs are unreachable from Xendit's servers, and plain
+HTTP is rejected. Two ways to bridge that:
+
+> **No tunnel? No problem.** Without a registered callback, the stack still
+> confirms payments end to end: the confirmation page and
+> `POST /api/v1/bookings/:id/sync-payment` check the invoice status directly
+> with Xendit (server-side, secret-key auth). Use tunnels only when you want
+> to exercise the real callback path locally.
+
+#### Quick tunnels (per-session URL, zero setup)
 
 ```bash
-cloudflared tunnel --url http://localhost:3000   # or: ngrok http 3000
+cloudflared tunnel --url http://localhost:3000
+# 🌍 Public access: https://random-words.trycloudflare.com
+# — or with ngrok:
+ngrok http 3000
+# Forwarding: https://xxxx-xx-xx.ngrok-free.app
+```
+
+Then point `.env` at it and register (every session — the URL changes on
+restart):
+
+```bash
+# .env
+XENDIT_WEBHOOK_URL=https://random-words.trycloudflare.com/api/v1/payments/xendit/webhook
+
 pnpm --filter @ticketing/ticket-service xendit:webhook
+```
+
+- **Pros:** nothing to install beyond the CLI, no account needed (cloudflared
+  quick tunnels work without one), instant.
+- **Cons:** new URL every restart → re-run the register command each session;
+  free-tier URLs are public — rely on the `x-callback-token` for auth (already
+  enforced), never on URL secrecy.
+
+#### Stable tunnels (fixed URL, register once)
+
+Worth it if you test callbacks regularly. A named Cloudflare tunnel or an
+ngrok domain keeps the same URL across restarts:
+
+```bash
+# Cloudflare (needs a domain on Cloudflare + one-time `cloudflared tunnel login`)
+cloudflared tunnel create cinx-dev
+cloudflared tunnel route dns cinx-dev dev-cinx.example.com
+cat > ~/.cloudflared/config.yml <<'EOF'
+tunnel: cinx-dev
+credentials-file: /home/<you>/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: dev-cinx.example.com
+    service: http://localhost:3000
+  - service: http_status:404
+EOF
+cloudflared tunnel run cinx-dev
+
+# ngrok (needs a free account; one reserved static domain on the free tier)
+ngrok config add-authtoken <token>
+ngrok http --domain=your-reserved.ngrok-free.app 3000
+```
+
+With either, set `XENDIT_WEBHOOK_URL` once and the registration sticks until
+you change it.
+
+#### Testing the callback end to end
+
+1. Hold seats and pay an invoice on the Xendit test page (test-mode secret key
+   → no real money moves).
+2. Watch the callback land: gateway logs show
+   `POST /api/v1/payments/xendit/webhook` → 200, and ticket-service logs the
+   `payment.webhook` span.
+3. The booking flips to `CONFIRMED` and ticket codes appear without the SPA
+   having to sync.
+
+To debug delivery, Xendit's dashboard (Developers → Webhooks) shows recent
+callback attempts and their response codes; `curl`-able replay comes from
+Xendit support on request. Local inspection of the raw body:
+
+```bash
+# stop the gateway and catch the callback manually:
+nc -l 3000
+# then trigger a payment and read the raw POST (headers incl. x-callback-token)
 ```
 
 ### Smoke test the endpoint
