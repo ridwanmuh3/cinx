@@ -8,6 +8,7 @@
     "dev": "nest start --watch",
     "smoke:redis": "tsx src/scripts/redis-smoke.ts",
     "reconcile": "tsx src/scripts/reconcile.ts",
+    "xendit:webhook": "tsx src/scripts/setup-xendit-webhook.ts",
     "seed": "tsx src/scripts/seed.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

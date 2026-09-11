@@ -128,6 +128,52 @@ Integration coverage (`bookings.integration-spec.ts`):
 | Confirm after lock loss      | Deleted Redis key → **410**, booking `EXPIRED`       |
 | Confirm when already expired | DB status `EXPIRED` → **410**                        |
 
+## Xendit webhook setup
+
+Xendit confirms bookings asynchronously: after the user pays on the hosted
+invoice page, Xendit POSTs an invoice callback to the gateway, which forwards
+it (with the `x-callback-token` header) to ticket-service for verification and
+booking confirmation. Configure it once per environment:
+
+1. **Set env vars** in `.env` (see `.env.example`):
+   - `XENDIT_SECRET_KEY` — secret API key ([Dashboard → Settings → API Keys](https://dashboard.xendit.co/settings/api-keys))
+   - `XENDIT_WEBHOOK_TOKEN` — verification token ([Dashboard → Settings → Developers → Webhooks](https://dashboard.xendit.co/settings/developers#webhooks))
+   - `XENDIT_WEBHOOK_URL` — public HTTPS URL of the gateway endpoint:
+     `https://<your-domain>/api/v1/payments/xendit/webhook`
+2. **Register the callback** with Xendit (uses `POST /callback_urls/invoice`):
+
+   ```bash
+   pnpm --filter @ticketing/ticket-service xendit:webhook
+   ```
+
+   The script registers the URL, verifies Xendit accepted it, and checks that
+   `XENDIT_WEBHOOK_TOKEN` matches the token Xendit will send (a mismatch means
+   every callback would be rejected with 401).
+
+### Local development (tunneling)
+
+Xendit must be able to reach your gateway over public HTTPS. For local stacks,
+expose it with a tunnel, then point `XENDIT_WEBHOOK_URL` at the printed URL:
+
+```bash
+cloudflared tunnel --url http://localhost:3000   # or: ngrok http 3000
+pnpm --filter @ticketing/ticket-service xendit:webhook
+```
+
+### Smoke test the endpoint
+
+```bash
+curl -i -X POST "https://<your-domain>/api/v1/payments/xendit/webhook" \
+  -H "x-callback-token: $XENDIT_WEBHOOK_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"id":"inv_smoke","external_id":"cix-none","status":"EXPIRED"}'
+```
+
+- `401` — token mismatch (header missing or wrong)
+- `404` with `Payment not found` — **success**: signature verified and the
+  pipeline ran (Xendit re-sends real callbacks up to 6 times if you don't 2xx,
+  and the handler is idempotent, so retries are safe)
+
 ## Benchmarks (k6)
 
 [k6](https://k6.io) load tests against the REST gateway. Requires k6 on `PATH`

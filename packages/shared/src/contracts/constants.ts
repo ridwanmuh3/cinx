@@ -21,6 +21,8 @@ export const XENDIT_API_URL =
 export const XENDIT_SECRET_KEY = process.env.XENDIT_SECRET_KEY ?? '';
 export const XENDIT_WEBHOOK_TOKEN = process.env.XENDIT_WEBHOOK_TOKEN ?? '';
 export const XENDIT_RETURN_URL = process.env.XENDIT_RETURN_URL ?? '';
+/** Public HTTPS URL of the gateway webhook endpoint (setup script only). */
+export const XENDIT_WEBHOOK_URL = process.env.XENDIT_WEBHOOK_URL ?? '';
 
 export const RESEND_FROM =
   process.env.RESEND_FROM ?? 'CinX <no-reply@example.com>';
