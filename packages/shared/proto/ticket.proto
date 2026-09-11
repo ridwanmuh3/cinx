@@ -14,6 +14,7 @@ service TicketService {
   rpc Charge(PaymentChargeRequest) returns (PaymentChargeResponse) {}
   rpc Confirm(PaymentConfirmRequest) returns (BookingDto) {}
   rpc Webhook(PaymentWebhookRequest) returns (Empty) {}
+  rpc SyncPaymentStatus(PaymentSyncRequest) returns (BookingDto) {}
   rpc CreateTickets(BookingGetRequest) returns (TicketList) {}
   rpc GetTicketByCode(TicketByCodeRequest) returns (TicketLookupDto) {}
 }
@@ -142,6 +143,11 @@ message PaymentConfirmRequest {
 message PaymentWebhookRequest {
   string signature = 1;
   string body = 2;
+}
+
+message PaymentSyncRequest {
+  string bookingId = 1;
+  string userId = 2;
 }
 
 message TicketByCodeRequest {

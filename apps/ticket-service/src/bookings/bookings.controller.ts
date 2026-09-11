@@ -14,6 +14,7 @@ import {
   PaymentChargeRequest,
   PaymentChargeResponse,
   PaymentConfirmRequest,
+  PaymentSyncRequest,
   PaymentWebhookRequest,
   TicketByCodeRequest,
   TicketList,
@@ -66,6 +67,11 @@ export class BookingsController {
   @GrpcMethod('TicketService', TicketPatterns.PAYMENT_WEBHOOK)
   webhook(@Payload() dto: PaymentWebhookRequest): Promise<Empty> {
     return this.bookings.webhook(dto);
+  }
+
+  @GrpcMethod('TicketService', TicketPatterns.PAYMENT_SYNC)
+  syncPaymentStatus(@Payload() dto: PaymentSyncRequest): Promise<BookingDto> {
+    return this.bookings.syncPaymentStatus(dto);
   }
 
   @GrpcMethod('TicketService', TicketPatterns.TICKET_CREATE)

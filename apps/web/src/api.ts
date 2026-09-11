@@ -197,6 +197,12 @@ export function cancelBooking(id: string): Promise<Booking> {
   return request<Booking>(`/bookings/${id}/cancel`, { method: 'POST', body: JSON.stringify({}) });
 }
 
+/** Server-side payment sync: the backend checks the invoice status directly
+ *  with Xendit and confirms/cancels the booking accordingly. */
+export function syncPayment(id: string): Promise<Booking> {
+  return request<Booking>(`/bookings/${id}/sync-payment`, { method: 'POST', body: JSON.stringify({}) });
+}
+
 /** Defensive normalisation: older/broken payloads may omit `status` or use
  *  `rowLabel` instead of `row`. Missing status is treated as AVAILABLE. */
 function normalizeSeatMap(raw: SeatMap): SeatMap {

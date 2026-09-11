@@ -10,6 +10,7 @@ export const TicketPatterns = {
   PAYMENT_CHARGE: 'Charge',
   PAYMENT_CONFIRM: 'Confirm',
   PAYMENT_WEBHOOK: 'Webhook',
+  PAYMENT_SYNC: 'SyncPaymentStatus',
   TICKET_CREATE: 'CreateTickets',
   TICKET_GET_BY_CODE: 'GetTicketByCode',
 } as const;
@@ -78,10 +79,24 @@ export interface PaymentConfirmRequest {
 }
 
 export interface PaymentWebhookRequest {
-  /** Value of the `x-callback-token` header sent by Xendit. */
+  /** Value of the `x-callback-token` header sent by Xendit.
+   * @deprecated Legacy alias — the gateway may still send `signature`. */
   signature: string;
-  /** Raw JSON webhook body sent by Xendit (stringified). */
-  body: string;
+  /** Raw JSON webhook body sent by Xendit (stringified).
+   * @deprecated Legacy alias — the gateway may still send `body`. */
+  body?: string;
+  /** Alternative field names accepted by the gateway. */
+  callbackToken?: string;
+  callback_token?: string;
+  xCallbackToken?: string;
+  rawBody?: string;
+  payload?: string;
+}
+
+/** Server-side payment status sync request (no webhook required). */
+export interface PaymentSyncRequest {
+  bookingId: string;
+  userId: string;
 }
 
 export interface XenditInvoiceCallback {
