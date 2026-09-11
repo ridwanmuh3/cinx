@@ -52,8 +52,12 @@ jobs:
         with:
           context: .
           file: apps/${{ matrix.service }}/Dockerfile
-          push: ${{ !env.ACT }}
-          load: ${{ env.ACT }}
+          # act sets ACT=true for local runs: build only, load into the local
+          # daemon. On GitHub runners ACT is unset -> push, don't load.
+          # (Plain `${{ env.ACT }}` evaluates to an empty string here, which
+          # build-push-action rejects as a non-boolean input.)
+          push: ${{ env.ACT != 'true' }}
+          load: ${{ env.ACT == 'true' }}
           tags: |
             ghcr.io/ridwanmuh3/ticketing-cinema/${{ matrix.service }}:${{ github.sha }}
             ghcr.io/ridwanmuh3/ticketing-cinema/${{ matrix.service }}:latest
