@@ -1,23 +1,28 @@
 export const CinemaPatterns = {
-  MOVIES_LIST: 'cinema.movies.list',
-  MOVIE_GET: 'cinema.movie.get',
-  MOVIE_CREATE: 'cinema.movie.create',
-  MOVIE_UPDATE: 'cinema.movie.update',
-  MOVIE_DELETE: 'cinema.movie.delete',
-  THEATERS_LIST: 'cinema.theaters.list',
-  THEATER_GET: 'cinema.theater.get',
-  THEATER_CREATE: 'cinema.theater.create',
-  THEATER_UPDATE: 'cinema.theater.update',
-  THEATER_DELETE: 'cinema.theater.delete',
-  SHOWTIMES_LIST: 'cinema.showtimes.list',
-  SHOWTIME_GET: 'cinema.showtime.get',
-  SHOWTIME_CREATE: 'cinema.showtime.create',
-  SHOWTIME_UPDATE: 'cinema.showtime.update',
-  SHOWTIME_DELETE: 'cinema.showtime.delete',
-  SHOWTIME_SEATS: 'cinema.showtime.seats',
+  PING: 'Ping',
+  MOVIES_LIST: 'ListMovies',
+  MOVIE_GET: 'GetMovie',
+  MOVIE_CREATE: 'CreateMovie',
+  MOVIE_UPDATE: 'UpdateMovie',
+  MOVIE_DELETE: 'DeleteMovie',
+  THEATERS_LIST: 'ListTheaters',
+  THEATER_GET: 'GetTheater',
+  THEATER_CREATE: 'CreateTheater',
+  THEATER_UPDATE: 'UpdateTheater',
+  THEATER_DELETE: 'DeleteTheater',
+  SHOWTIMES_LIST: 'ListShowtimes',
+  SHOWTIME_GET: 'GetShowtime',
+  SHOWTIME_CREATE: 'CreateShowtime',
+  SHOWTIME_UPDATE: 'UpdateShowtime',
+  SHOWTIME_DELETE: 'DeleteShowtime',
+  SHOWTIME_SEATS: 'GetSeatMap',
 } as const;
 
 export type ObjectId = string;
+
+export interface IdRequest {
+  id: string;
+}
 
 export type AgeRating = 'SU' | 'BO' | '13+' | '17+' | '21+';
 
@@ -93,6 +98,7 @@ export interface MovieCreateRequest {
 }
 
 export interface MovieUpdateRequest {
+  id?: string;
   title?: string;
   synopsis?: string;
   genres?: string[];
@@ -112,13 +118,16 @@ export interface TheaterDto {
   updatedAt: string;
 }
 
+/** Wire shape mirrors the flat CreateTheaterRequest proto message. */
 export interface TheaterCreateRequest {
   name: string;
   address: string;
-  layout: { rows: number; cols: number };
+  rows: number;
+  cols: number;
 }
 
 export interface TheaterUpdateRequest {
+  id?: string;
   name?: string;
   address?: string;
 }
@@ -165,6 +174,7 @@ export interface ShowtimeSeatMap {
 }
 
 export interface ShowtimeUpdateRequest {
+  id?: string;
   movieId?: string;
   theaterId?: string;
   startsAt?: string;

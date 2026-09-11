@@ -1,0 +1,54 @@
+# OpenTelemetry Collector: single fan-in point for all ticketing-cinema
+# telemetry. Services export OTLP/HTTP here; the collector forwards traces
+# to Tempo and exposes metrics for Prometheus to scrape.
+#
+# Env knobs (set on the otel-collector service):
+#   DEPLOY_ENV          stamped onto every span/metric (default: development)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  attributes:
+    actions:
+      - key: deployment.environment.name
+        value: ${env:DEPLOY_ENV:-development}
+        action: upsert
+  batch: {}
+
+exporters:
+  # Traces -> Grafana Tempo (OTLP/HTTP).
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
+  # Metrics -> scraped by Prometheus from :8889.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes, batch]
+      exporters: [otlphttp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes, batch]
+      exporters: [prometheus]

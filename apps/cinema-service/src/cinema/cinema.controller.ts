@@ -1,6 +1,6 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
-import { CinemaPatterns } from '@ticketing/shared';
+import { GrpcMethod } from '@nestjs/microservices';
+import { CinemaPatterns, validateDto } from '@ticketing/shared';
 import { MoviesService } from '../movies/movies.service';
 import { ShowtimesService } from '../showtimes/showtimes.service';
 import { TheatersService } from '../theaters/theaters.service';
@@ -14,7 +14,7 @@ import {
   UpdateShowtimeDto,
   UpdateTheaterDto,
 } from '../movies/movies.dto';
-import { ListQueryDto } from './dto/list-query.dto';
+import { ListQueryDto } from '../cinema/dto/list-query.dto';
 
 @Controller()
 export class CinemaController {
@@ -24,83 +24,101 @@ export class CinemaController {
     private readonly showtimes: ShowtimesService,
   ) {}
 
-  @MessagePattern(CinemaPatterns.MOVIES_LIST)
-  listMovies(@Payload() q: ListMoviesQueryDto) {
-    return this.movies.list(q);
+  @GrpcMethod('CinemaService', CinemaPatterns.MOVIES_LIST)
+  async listMovies(req: ListMoviesQueryDto) {
+    await validateDto(req, ListMoviesQueryDto);
+    return this.movies.list(req);
   }
 
-  @MessagePattern(CinemaPatterns.MOVIE_GET)
-  getMovie(@Payload() payload: { id: string }) {
-    return this.movies.one(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.MOVIE_GET)
+  getMovie(req: { id: string }) {
+    return this.movies.one(req.id);
   }
 
-  @MessagePattern(CinemaPatterns.MOVIE_CREATE)
-  createMovie(@Payload() dto: CreateMovieDto) {
-    return this.movies.create(dto);
+  @GrpcMethod('CinemaService', CinemaPatterns.MOVIE_CREATE)
+  async createMovie(req: CreateMovieDto) {
+    await validateDto(req, CreateMovieDto);
+    return this.movies.create(req);
   }
 
-  @MessagePattern(CinemaPatterns.MOVIE_UPDATE)
-  updateMovie(@Payload() payload: { id: string } & UpdateMovieDto) {
-    return this.movies.update(payload.id, payload);
+  @GrpcMethod('CinemaService', CinemaPatterns.MOVIE_UPDATE)
+  async updateMovie(req: UpdateMovieDto & { id: string }) {
+    await validateDto(req, UpdateMovieDto);
+    return this.movies.update(req.id, req);
   }
 
-  @MessagePattern(CinemaPatterns.MOVIE_DELETE)
-  deleteMovie(@Payload() payload: { id: string }) {
-    return this.movies.remove(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.MOVIE_DELETE)
+  async deleteMovie(req: { id: string }) {
+    await this.movies.remove(req.id);
+    return {};
   }
 
-  @MessagePattern(CinemaPatterns.THEATERS_LIST)
-  listTheaters(@Payload() q: ListQueryDto) {
-    return this.theaters.list(q);
+  @GrpcMethod('CinemaService', CinemaPatterns.THEATERS_LIST)
+  async listTheaters(req: ListQueryDto) {
+    await validateDto(req, ListQueryDto);
+    return this.theaters.list(req);
   }
 
-  @MessagePattern(CinemaPatterns.THEATER_GET)
-  getTheater(@Payload() payload: { id: string }) {
-    return this.theaters.one(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.THEATER_GET)
+  getTheater(req: { id: string }) {
+    return this.theaters.one(req.id);
   }
 
-  @MessagePattern(CinemaPatterns.THEATER_CREATE)
-  createTheater(@Payload() dto: CreateTheaterDto) {
-    return this.theaters.create(dto);
+  @GrpcMethod('CinemaService', CinemaPatterns.THEATER_CREATE)
+  async createTheater(req: CreateTheaterDto) {
+    await validateDto(req, CreateTheaterDto);
+    // Normalize to the flat proto wire shape (name, address, rows, cols).
+    return this.theaters.create({
+      name: req.name,
+      address: req.address,
+      rows: req.layout?.rows ?? req.rows ?? 0,
+      cols: req.layout?.cols ?? req.cols ?? 0,
+    });
   }
 
-  @MessagePattern(CinemaPatterns.THEATER_UPDATE)
-  updateTheater(@Payload() payload: { id: string } & UpdateTheaterDto) {
-    return this.theaters.update(payload.id, payload);
+  @GrpcMethod('CinemaService', CinemaPatterns.THEATER_UPDATE)
+  async updateTheater(req: UpdateTheaterDto & { id: string }) {
+    await validateDto(req, UpdateTheaterDto);
+    return this.theaters.update(req.id, req);
   }
 
-  @MessagePattern(CinemaPatterns.THEATER_DELETE)
-  deleteTheater(@Payload() payload: { id: string }) {
-    return this.theaters.remove(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.THEATER_DELETE)
+  async deleteTheater(req: { id: string }) {
+    await this.theaters.remove(req.id);
+    return {};
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIMES_LIST)
-  listShowtimes(@Payload() q: ListShowtimesQueryDto) {
-    return this.showtimes.list(q);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIMES_LIST)
+  async listShowtimes(req: ListShowtimesQueryDto) {
+    await validateDto(req, ListShowtimesQueryDto);
+    return this.showtimes.list(req);
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIME_GET)
-  getShowtime(@Payload() payload: { id: string }) {
-    return this.showtimes.one(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIME_GET)
+  getShowtime(req: { id: string }) {
+    return this.showtimes.one(req.id);
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIME_CREATE)
-  createShowtime(@Payload() dto: CreateShowtimeDto) {
-    return this.showtimes.create(dto);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIME_CREATE)
+  async createShowtime(req: CreateShowtimeDto) {
+    await validateDto(req, CreateShowtimeDto);
+    return this.showtimes.create(req);
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIME_UPDATE)
-  updateShowtime(@Payload() payload: { id: string } & UpdateShowtimeDto) {
-    return this.showtimes.update(payload.id, payload);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIME_UPDATE)
+  async updateShowtime(req: UpdateShowtimeDto & { id: string }) {
+    await validateDto(req, UpdateShowtimeDto);
+    return this.showtimes.update(req.id, req);
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIME_DELETE)
-  deleteShowtime(@Payload() payload: { id: string }) {
-    return this.showtimes.remove(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIME_DELETE)
+  async deleteShowtime(req: { id: string }) {
+    await this.showtimes.remove(req.id);
+    return {};
   }
 
-  @MessagePattern(CinemaPatterns.SHOWTIME_SEATS)
-  seatMap(@Payload() payload: { id: string }) {
-    return this.showtimes.seatMap(payload.id);
+  @GrpcMethod('CinemaService', CinemaPatterns.SHOWTIME_SEATS)
+  seatMap(req: { id: string }) {
+    return this.showtimes.seatMap(req.id);
   }
 }

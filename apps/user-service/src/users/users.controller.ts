@@ -1,27 +1,44 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
-import { UserPatterns, UserDto, LoginResponse } from '@ticketing/shared';
+import { GrpcMethod } from '@nestjs/microservices';
+import { UserPatterns, validateDto } from '@ticketing/shared';
 import { UsersService } from './users.service';
+import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { MeDto } from './dto/me.dto';
-import { RegisterDto } from './dto/register.dto';
 
 @Controller()
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
-  @MessagePattern(UserPatterns.REGISTER)
-  register(@Payload() dto: RegisterDto): Promise<UserDto> {
-    return this.users.register(dto);
+  @GrpcMethod('UserService', UserPatterns.REGISTER)
+  async register(req: RegisterDto) {
+    await validateDto(req, RegisterDto);
+    return this.users.register(req);
   }
 
-  @MessagePattern(UserPatterns.LOGIN)
-  login(@Payload() dto: LoginDto): Promise<LoginResponse> {
-    return this.users.login(dto);
+  @GrpcMethod('UserService', UserPatterns.LOGIN)
+  async login(req: LoginDto) {
+    await validateDto(req, LoginDto);
+    return this.users.login(req);
   }
 
-  @MessagePattern(UserPatterns.ME)
-  me(@Payload() dto: MeDto): Promise<UserDto> {
-    return this.users.me(dto);
+  @GrpcMethod('UserService', UserPatterns.ME)
+  async me(req: MeDto) {
+    await validateDto(req, MeDto);
+    return this.users.me(req);
+  }
+
+  @GrpcMethod('UserService', UserPatterns.GET)
+  async get(req: { userId: string }) {
+    return this.users.get(req.userId);
+  }
+
+  @GrpcMethod('UserService', UserPatterns.PING)
+  ping() {
+    return {
+      service: 'user-service',
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    };
   }
 }

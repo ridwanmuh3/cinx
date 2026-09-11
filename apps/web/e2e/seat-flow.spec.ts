@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { API_BASE, USER_STATE, ADMIN_STATE } from './helpers';
+import { API_BASE, USER_STATE } from './helpers';
 
 test.use({ storageState: USER_STATE });
 
@@ -7,23 +7,23 @@ test.describe('seat selection flow', () => {
   test('browse movie → choose cinema → select seats → hold', async ({ page, userApi }) => {
     // 1. Movie list → open first movie.
     await page.goto('/movies');
-    const card = page.locator('a[href^="/movies/"]').first();
+    const card = page.locator('a.bx-card[href^="/movies/"]').first();
     await expect(card).toBeVisible();
     await card.click();
     await expect(page).toHaveURL(/\/movies\/[^/]+$/);
 
     // 2. Movie detail renders the "Choose cinema" dropdown and showtime cards.
-    const cinemaSelect = page.locator('select').first();
-    await expect(cinemaSelect).toBeVisible();
-    await expect(cinemaSelect).toHaveValue('');
+    const cinemaFilter = page.locator('[data-testid="theater-filter"]');
+    await expect(cinemaFilter).toBeVisible();
+    await expect(cinemaFilter).toHaveText('All cinemas');
     const seatsLink = page.locator('a', { hasText: 'Select seats' }).first();
     await expect(seatsLink).toBeVisible();
 
     // 3. Filtering by cinema keeps at least the seeded theater's showtime.
-    const options = cinemaSelect.locator('option');
+    await cinemaFilter.click();
+    const options = page.locator('.n-base-select-option');
     await expect(options).toHaveCount(2); // "All cinemas" + seeded theater
-    const theaterName = (await options.nth(1).textContent())?.trim() ?? '';
-    await cinemaSelect.selectOption({ label: theaterName });
+    await options.nth(1).click();
     await expect(page.locator('a', { hasText: 'Select seats' }).first()).toBeVisible();
 
     // 4. Open the seat picker.

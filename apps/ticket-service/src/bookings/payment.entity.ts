@@ -60,6 +60,20 @@ export class Payment {
   @Column({ name: 'receipt_url', type: 'varchar', length: 512, nullable: true })
   receiptUrl: string | null;
 
+  @Column({ name: 'invoice_id', type: 'varchar', length: 200, nullable: true })
+  invoiceId: string | null;
+
+  @Column({
+    name: 'checkout_url',
+    type: 'varchar',
+    length: 1024,
+    nullable: true,
+  })
+  checkoutUrl: string | null;
+
+  @Column({ name: 'method', type: 'varchar', length: 20, default: 'XENDIT' })
+  method: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

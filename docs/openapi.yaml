@@ -9,12 +9,16 @@ info:
     internal services over TCP (user-service, cinema-service, ticket-service).
     This document only describes the public REST surface exposed by the gateway.
 
-    ## Booking flow (two-step hold -> pay)
+    ## Booking flow (hold -> Xendit invoice -> webhook)
     1. `POST /bookings/holds` reserves seats with a Redis lock (5-minute TTL)
-       and returns a `bookingId`, `paymentId` and `expiresAt`.
-    2. `POST /bookings/{id}/pay` confirms the booking (mock payment). If the
-       hold has expired the API returns `410 Gone` and the seats are released.
-    3. `POST /bookings/{id}/cancel` releases the seats (only while PENDING).
+       and returns a `bookingId` and `expiresAt`.
+    2. `POST /bookings/{id}/pay` creates a Xendit hosted invoice and returns
+       `checkoutUrl` + `invoiceId`. Redirect the user to `checkoutUrl`.
+    3. Xendit POSTs the invoice callback to
+       `POST /payments/xendit/webhook` (header `x-callback-token`), which
+       confirms the booking and issues tickets. If the hold has expired the
+       API returns `410 Gone` and the seats are released.
+    4. `POST /bookings/{id}/cancel` releases the seats (only while PENDING).
 
     ## Roles
     - `admin` — full access to catalog management (movies, theaters, showtimes).
@@ -849,7 +853,7 @@ paths:
       - $ref: "#/components/parameters/Id"
     post:
       tags: [Bookings]
-      summary: Confirm a booking with a mock payment
+      summary: Create a Xendit invoice for a booking
       operationId: payBooking
       security:
         - bearerAuth: []
@@ -862,14 +866,24 @@ paths:
       responses:
         "200":
           description: |
-            Payment processed. Check `payment.status`:
-            - `PAID` — booking is `CONFIRMED` and tickets are issued.
-            - `FAILED` — booking remains `PENDING` (simulated payment failure),
-              the client may retry until `expiresAt`.
+            Hosted invoice created. Redirect the user to `checkoutUrl` to pay
+            on Xendit. The booking stays `PENDING` until Xendit POSTs the
+            invoice callback to `/payments/xendit/webhook`, which flips it to
+            `CONFIRMED` and issues tickets.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Booking"
+                allOf:
+                  - $ref: "#/components/schemas/Booking"
+                  - type: object
+                    required: [checkoutUrl, invoiceId]
+                    properties:
+                      checkoutUrl:
+                        type: [string, "null"]
+                        example: https://checkout.xendit.co/v2/abc
+                      invoiceId:
+                        type: [string, "null"]
+                        example: abc123
         "400":
           description: Invalid payload
           content:
@@ -943,6 +957,54 @@ paths:
                 $ref: "#/components/schemas/Error"
         "409":
           description: Booking is not PENDING (cannot cancel CONFIRMED/EXPIRED)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /payments/xendit/webhook:
+    post:
+      tags: [Payments]
+      summary: Xendit invoice callback
+      operationId: xenditWebhook
+      description: |
+        Configure this URL in the Xendit dashboard. Xendit sends the
+        `x-callback-token` header; it must match `XENDIT_WEBHOOK_TOKEN`.
+        `PAID`/`SETTLED` confirms the booking and issues tickets;
+        `EXPIRED`/`FAILED` cancels it.
+      security: []
+      parameters:
+        - name: x-callback-token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, external_id, status]
+              properties:
+                id:
+                  type: string
+                external_id:
+                  type: string
+                status:
+                  type: string
+                  example: PAID
+      responses:
+        "200":
+          description: Webhook acknowledged
+        "401":
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Payment or booking not found
           content:
             application/json:
               schema:
@@ -1572,7 +1634,7 @@ components:
           example: pay_01J2
         method:
           type: string
-          enum: [MOCK]
+          enum: [XENDIT]
         status:
           $ref: "#/components/schemas/PaymentStatus"
         amount:
@@ -1700,16 +1762,15 @@ components:
 
     PayRequest:
       type: object
-      required: [paymentMethod]
       properties:
-        paymentMethod:
+        returnUrl:
           type: string
-          enum: [MOCK]
-        simulate:
+          format: uri
+          description: Where Xendit redirects after payment (defaults to the booking confirmation page)
+        payerEmail:
           type: string
-          description: Mock provider outcome (defaults to SUCCESS)
-          enum: [SUCCESS, FAILURE]
-          default: SUCCESS
+          format: email
+          description: Receipt email shown on the Xendit invoice
 
     PaginationMeta:
       type: object

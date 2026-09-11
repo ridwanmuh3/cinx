@@ -32,6 +32,13 @@
     "ci:local": "act -W .github/workflows/ci.yaml",
     "cd:local": "act -W .github/workflows/cd.yaml"
   },
+  "pnpm": {
+    "overrides": {
+      "multer": ">=2.3.0 <3",
+      "qs": ">=6.16.0",
+      "js-yaml": ">=4.3.2"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@nestjs/testing": "^11.1.29",

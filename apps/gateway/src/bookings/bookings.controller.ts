@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   Post,
@@ -16,9 +17,9 @@ import {
 import { JwtAuthGuard } from '../common/auth/jwt-auth.guard';
 import { Public } from '../common/auth/public.decorator';
 import { toPositiveInt } from '../utils/paging.util';
-import { BookingView, BookingsService } from './bookings.service';
+import { BookingView, BookingsService, PayResult } from './bookings.service';
 import { HoldSeatsDto } from './dto/hold.dto';
-import { PayBookingDto } from './dto/pay.dto';
+import { PayBookingDto, XenditWebhookDto } from './dto/pay.dto';
 
 const MAX_LIMIT = 100;
 
@@ -57,8 +58,23 @@ export class BookingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: PayBookingDto,
-  ): Promise<BookingView> {
+  ): Promise<PayResult> {
     return this.bookings.pay(user.userId, id, dto);
+  }
+
+  /**
+   * Xendit invoice callback. Authenticated via the `x-callback-token`
+   * header (not JWT), verified in ticket-service against
+   * XENDIT_WEBHOOK_TOKEN. Configure this URL in the Xendit dashboard.
+   */
+  @Public()
+  @Post('payments/xendit/webhook')
+  @HttpCode(200)
+  xenditWebhook(
+    @Headers('x-callback-token') signature: string,
+    @Body() body: XenditWebhookDto,
+  ) {
+    return this.bookings.webhook(signature ?? '', JSON.stringify(body ?? {}));
   }
 
   @Post('bookings/:id/cancel')

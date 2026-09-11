@@ -1,7 +1,9 @@
 export const UserPatterns = {
-  REGISTER: 'user.register',
-  LOGIN: 'user.login',
-  ME: 'user.me',
+  REGISTER: 'Register',
+  LOGIN: 'Login',
+  ME: 'Me',
+  GET: 'Get',
+  PING: 'Ping',
 } as const;
 
 export type UserRole = 'admin' | 'user';
@@ -27,6 +29,12 @@ export interface UserDto {
   name: string | null;
   role: UserRole;
   createdAt: string;
+}
+
+export interface UserContactDto {
+  id: string;
+  email: string;
+  name: string | null;
 }
 
 export interface LoginResponse {

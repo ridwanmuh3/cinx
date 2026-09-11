@@ -4,8 +4,12 @@
 #   internal -> gateway, microservices, postgres, redis (internal: true, no
 #               host port publishing and no outbound access)
 #
-# Only `web` (SPA) and `gateway` (REST API) publish host ports. Postgres,
-# Redis and the three TCP microservices are unreachable from outside.
+# Only `web` (SPA), `gateway` (REST API) and `grafana` (dashboards) publish
+# host ports. Postgres, Redis, the gRPC microservices and the rest of the
+# observability stack are unreachable from outside.
+#
+# Observability: every backend service exports OTLP traces+metrics to
+# `otel-collector` -> Tempo (traces) + Prometheus (metrics) -> Grafana.
 
 name: ticketing-cinema
 
@@ -34,7 +38,15 @@ services:
       USER_HOST: user-service
       CINEMA_HOST: cinema-service
       TICKET_HOST: ticket-service
+      USER_PORT: 3001
+      CINEMA_PORT: 3002
+      TICKET_PORT: 3003
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      OTEL_SERVICE_NAME: gateway
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
     ports:
       - '${GATEWAY_PORT:-3000}:3000'
     networks: [public, internal]
@@ -65,6 +77,11 @@ services:
       PG_USER: postgres
       PG_PASSWORD: ${PG_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      OTEL_SERVICE_NAME: user-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
     networks: [internal]
     depends_on:
       postgres:
@@ -94,6 +111,11 @@ services:
       PG_PORT: 5432
       PG_USER: postgres
       PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      OTEL_SERVICE_NAME: cinema-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
     networks: [internal]
     depends_on:
       postgres:
@@ -126,6 +148,11 @@ services:
       REDIS_URL: redis://redis:6379
       CINEMA_HOST: cinema-service
       CINEMA_PORT: 3002
+      OTEL_SERVICE_NAME: ticket-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
     networks: [internal]
     depends_on:
       postgres:
@@ -177,6 +204,22 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    ports:
+      - '${RMQ_PORT:-5672}:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RabbitMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RabbitMQ_PASSWORD:-guest}
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # One-shot demo data seeding. Run with:
   #   docker compose --profile seed run --rm seed
   seed:
@@ -194,6 +237,67 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ---- Observability (traces + metrics) ----
+  # Services export OTLP to otel-collector; Tempo stores traces, Prometheus
+  # scrapes metrics, Grafana visualises both. Only Grafana publishes a port.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    restart: unless-stopped
+    command: ['--config=/etc/otelcol/config.yaml']
+    environment:
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    volumes:
+      - ./infra/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    networks: [internal]
+    depends_on:
+      tempo:
+        condition: service_started
+
+  tempo:
+    image: grafana/tempo:2.9.5
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo/tempo.yaml']
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    networks: [internal]
+
+  prometheus:
+    image: prom/prometheus:v3.9.1
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks: [internal]
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:13.0.8
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - '${GRAFANA_PORT:-3001}:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+    networks: [public, internal]
+    depends_on:
+      tempo:
+        condition: service_started
+      prometheus:
+        condition: service_started
 
 networks:
   public:
@@ -203,3 +307,6 @@ networks:
 volumes:
   pg_data:
   redis_data:
+  tempo_data:
+  prometheus_data:
+  grafana_data:

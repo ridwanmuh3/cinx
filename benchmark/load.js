@@ -12,7 +12,6 @@ import {
   getAvailableSeatIds,
   holdSeats,
   payBooking,
-  lookupTicket,
 } from './lib.js';
 
 const TARGET_VUS = Number(__ENV.VUS || 50);
@@ -37,10 +36,7 @@ export default function () {
   const seatIds = getAvailableSeatIds(showtimeId);
 
   const bookingId = holdSeats(token, showtimeId, seatIds);
-  const codes = payBooking(token, bookingId);
-  for (const code of codes) {
-    lookupTicket(code);
-  }
+  payBooking(token, bookingId);
 
   sleep(1);
 }

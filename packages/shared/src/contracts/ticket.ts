@@ -1,33 +1,32 @@
-export const TicketPatterns = {
-  // bookings
-  BOOKING_HOLD: 'booking.hold',
-  BOOKING_CANCEL: 'booking.cancel',
-  BOOKING_GET: 'booking.get',
-  BOOKING_LIST: 'booking.list',
-  BOOKING_AVAILABILITY: 'booking.availability',
-  // payments
-  PAYMENT_CHARGE: 'payment.charge',
-  PAYMENT_CONFIRM: 'payment.confirm',
-  // tickets
-  TICKET_CREATE: 'ticket.create',
-  TICKET_GET_BY_CODE: 'ticket.getByCode',
-} as const;
+import { PaginationMeta } from './cinema';
 
-import { PaginationMeta, SeatCategory } from './cinema';
+export const TicketPatterns = {
+  PING: 'Ping',
+  BOOKING_HOLD: 'Hold',
+  BOOKING_CANCEL: 'Cancel',
+  BOOKING_GET: 'Get',
+  BOOKING_LIST: 'List',
+  BOOKING_AVAILABILITY: 'Availability',
+  PAYMENT_CHARGE: 'Charge',
+  PAYMENT_CONFIRM: 'Confirm',
+  PAYMENT_WEBHOOK: 'Webhook',
+  TICKET_CREATE: 'CreateTickets',
+  TICKET_GET_BY_CODE: 'GetTicketByCode',
+} as const;
 
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
 
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED';
 
-export type PaymentMethod = 'MOCK';
+export type PaymentMethod = 'XENDIT';
 
-export type MockSimulation = 'SUCCESS' | 'FAILURE';
+export type XenditInvoiceStatus =
+  'PENDING' | 'PAID' | 'SETTLED' | 'EXPIRED' | 'FAILED';
 
-// Seat hold: ticket-service validates seats against cinema-service, then locks.
 export interface HoldSeatsRequest {
   userId: string;
   showtimeId: string;
-  seatIds: string[]; // logical refs to cinema_db.seats
+  seatIds: string[];
 }
 
 export interface BookingGetRequest {
@@ -52,8 +51,10 @@ export interface ReconcileResult {
 }
 
 export interface PaymentChargeRequest {
-  /** Mock provider outcome override (defaults to SUCCESS). */
-  simulate?: MockSimulation;
+  bookingId: string;
+  userId: string;
+  returnUrl?: string;
+  payerEmail?: string;
 }
 
 export interface PaymentChargeResponse {
@@ -62,29 +63,42 @@ export interface PaymentChargeResponse {
   providerTxnId: string | null;
   paidAt: string | null;
   receiptUrl: string | null;
+  checkoutUrl: string | null;
+  invoiceId: string | null;
+  method: PaymentMethod;
 }
 
-export interface BookingAvailabilityRequest {
-  showtimeId: string;
+export interface PaymentConfirmRequest {
+  bookingId: string;
+  userId: string;
+  paid: boolean;
+  providerId: string;
+  paidAt?: string | null;
+  receipt?: string | null;
 }
 
-export type SeatAvailabilityStatus = 'AVAILABLE' | 'HELD' | 'BOOKED';
-
-export interface SeatAvailability {
-  seatId: string;
-  status: SeatAvailabilityStatus;
+export interface PaymentWebhookRequest {
+  /** Value of the `x-callback-token` header sent by Xendit. */
+  signature: string;
+  /** Raw JSON webhook body sent by Xendit (stringified). */
+  body: string;
 }
 
-export interface BookingAvailabilityResponse {
-  showtimeId: string;
-  seats: SeatAvailability[];
+export interface XenditInvoiceCallback {
+  id: string;
+  external_id: string;
+  status: XenditInvoiceStatus;
+  paid_at?: string | null;
+  payment_method?: string | null;
+  payment_channel?: string | null;
+  paid_amount?: number | null;
+  amount?: number | null;
 }
 
 export interface TicketByCodeRequest {
   code: string;
 }
 
-/** Public ticket lookup (scanning) — extends TicketDto with seat + showtime info. */
 export interface TicketLookupDto {
   id: string;
   code: string;
@@ -102,41 +116,34 @@ export interface HeldSeat {
   seatId: string;
   rowLabel: string;
   seatNumber: number;
-  category: SeatCategory;
-  priceAmount: number; // snapshot of showtime price
+  category: string;
+  priceAmount: number;
   priceCurrency: 'IDR';
 }
 
 export interface HoldResponse {
   bookingId: string;
-  status: BookingStatus; // PENDING
-  expiresAt: string; // ISO timestamptz
+  status: BookingStatus;
+  expiresAt: string;
   totalAmount: number;
   currency: 'IDR';
   seats: HeldSeat[];
-  payment: {
-    providerId: string;
-    method: PaymentMethod;
-    status: PaymentStatus; // PENDING
-  };
+  payment: PaymentSummary;
 }
 
-// Payment confirm after mock provider returns (gateway forwards result).
-export interface PaymentConfirmRequest {
-  bookingId: string;
-  userId: string;
-  // mock provider result
-  paid: boolean;
+export interface PaymentSummary {
   providerId: string;
-  paidAt?: string | null;
-  receipt?: string | null;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  checkoutUrl: string | null;
+  invoiceId: string | null;
 }
 
 export interface BookingSeatSnapshot {
   seatId: string;
   rowLabel: string;
   seatNumber: number;
-  category: SeatCategory;
+  category: string;
   priceAmount: number;
   priceCurrency: 'IDR';
 }
@@ -157,15 +164,37 @@ export interface BookingDto {
 export interface TicketDto {
   id: string;
   bookingId: string;
-  code: string; // TKT-XXXXXX
+  code: string;
   movieTitle: string;
   theaterName: string;
   startsAt: string;
   seatId: string;
+  row: string;
+  number: number;
   createdAt: string;
 }
 
 export interface PaginatedBookings {
   items: BookingDto[];
   meta: PaginationMeta;
+}
+
+export interface TicketList {
+  items: TicketDto[];
+}
+
+export interface BookingAvailabilityRequest {
+  showtimeId: string;
+}
+
+export type SeatAvailabilityStatus = 'AVAILABLE' | 'HELD' | 'BOOKED';
+
+export interface SeatAvailability {
+  seatId: string;
+  status: SeatAvailabilityStatus;
+}
+
+export interface BookingAvailabilityResponse {
+  showtimeId: string;
+  seats: SeatAvailability[];
 }

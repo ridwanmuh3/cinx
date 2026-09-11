@@ -1,47 +1,39 @@
 # Web
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.0.7.
+CinX web frontend — Vue 3 + TypeScript + Vite, with Pinia for state, Vue Router for
+navigation, and [Naive UI](https://www.naiveui.com/) as the component library
+(themed to the CinX "Showtime Board" amber/dark look).
 
 ## Development server
 
 To start a local development server, run:
 
 ```bash
-ng serve
+pnpm dev
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
+Once the server is running, open your browser and navigate to `http://localhost:4200/`.
+The application will automatically reload whenever you modify any of the source files.
+During local dev, `/api` is proxied to the REST gateway at `http://localhost:3000`
+(see `vite.config.ts`).
 
 ## Building
 
 To build the project run:
 
 ```bash
-ng build
+pnpm build
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+This type-checks the app (`vue-tsc --noEmit`) and compiles it with Vite, storing the
+build artifacts in `dist/`.
 
 ## Running unit tests
 
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+To execute unit tests with [Vitest](https://vitest.dev/), use the following command:
 
 ```bash
-ng test
+pnpm test
 ```
 
 ## Running end-to-end tests
@@ -49,11 +41,23 @@ ng test
 For end-to-end (e2e) testing, run:
 
 ```bash
-ng e2e
+pnpm e2e
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+Playwright boots the full backend stack (`scripts/e2e-services.sh`) and the Vite dev
+server before running the specs in `e2e/`.
+
+## Project layout
+
+- `src/api.ts` — fetch-based API client with Bearer token injection and error normalisation
+- `src/stores/` — Pinia stores (`auth`, `theme`)
+- `src/router.ts` — lazy-loaded routes with auth/admin guards
+- `src/views/` — route components (landing, auth, movies, bookings, admin)
+- `src/components/` — app shell and shared widgets
+- `src/ui/theme.ts` — Naive UI theme overrides matching the CinX design tokens
 
 ## Additional Resources
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- [Vite documentation](https://vite.dev/)
+- [Vue 3 documentation](https://vuejs.org/)
+- [Naive UI documentation](https://www.naiveui.com/en-US/os-theme)

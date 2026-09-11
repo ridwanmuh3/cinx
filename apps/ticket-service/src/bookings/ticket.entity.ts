@@ -11,6 +11,7 @@ import { Booking } from './booking.entity';
 @Entity('tickets')
 @Index(['code'], { unique: true })
 @Index(['booking'])
+@Index(['booking', 'seatId'], { unique: true })
 export class Ticket {
   @PrimaryGeneratedColumn('uuid')
   id: string;

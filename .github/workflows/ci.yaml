@@ -25,9 +25,17 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+        env:
+          # Telemetry exporters must stay silent and side-effect free in tests.
+          OTEL_SDK_DISABLED: 'true'
 
       - name: Build
         run: pnpm build
 
       - name: Format check
         run: pnpm format:check
+
+      - name: Validate compose files (incl. observability stack)
+        run: |
+          docker compose config -q
+          docker compose -f infra/docker-compose.yml config -q

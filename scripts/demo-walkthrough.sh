@@ -91,19 +91,24 @@ BOOKING_ID="$(json_get "$HOLD" "obj.get('bookingId') or obj.get('id')")"
 [[ -n "$BOOKING_ID" ]] || die "hold failed: $HOLD"
 ok "bookingId=${BOOKING_ID} status=$(json_get "$HOLD" "obj.get('status')") expiresAt=$(json_get "$HOLD" "obj.get('expiresAt')")"
 
-bold "7. Pay (mock SUCCESS)"
-PAID="$(http POST "/bookings/${BOOKING_ID}/pay" '{"paymentMethod":"MOCK","simulate":"SUCCESS"}')"
-STATUS="$(json_get "$PAID" "obj.get('status')")"
-[[ "$STATUS" == "CONFIRMED" ]] || die "pay did not confirm: $PAID"
-ok "booking CONFIRMED"
+bold "7. Pay (Xendit invoice)"
+PAID="$(http POST "/bookings/${BOOKING_ID}/pay" '{}')"
+CHECKOUT_URL="$(json_get "$PAID" "obj.get('checkoutUrl')")"
+INVOICE_ID="$(json_get "$PAID" "obj.get('invoiceId')")"
+[[ -n "$CHECKOUT_URL" && -n "$INVOICE_ID" ]] || die "pay did not create an invoice: $PAID"
+ok "invoice ${INVOICE_ID}"
+echo "  Pay here: ${CHECKOUT_URL}"
+echo "  Complete payment in Xendit, then the webhook confirms the booking."
 
-TICKET_CODES="$(json_get "$PAID" "','.join([t['code'] for t in obj.get('tickets') or []])")"
-if [[ -z "$TICKET_CODES" ]]; then
-  BOOKING="$(http GET "/bookings/${BOOKING_ID}")"
-  TICKET_CODES="$(json_get "$BOOKING" "','.join([t['code'] for t in obj.get('tickets') or []])")"
+BOOKING="$(http GET "/bookings/${BOOKING_ID}")"
+STATUS="$(json_get "$BOOKING" "obj.get('status')")"
+ok "booking status=${STATUS} (PENDING until the Xendit webhook fires)"
+TICKET_CODES="$(json_get "$BOOKING" "','.join([t['code'] for t in obj.get('tickets') or []])")"
+if [[ -n "$TICKET_CODES" ]]; then
+  ok "tickets: ${TICKET_CODES}"
+else
+  echo "  (no tickets yet — pay the invoice first)"
 fi
-[[ -n "$TICKET_CODES" ]] || die "no ticket codes after pay: $PAID"
-ok "tickets: ${TICKET_CODES}"
 
 bold "8. Public ticket lookup"
 FIRST_CODE="${TICKET_CODES%%,*}"

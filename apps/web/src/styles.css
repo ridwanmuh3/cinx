@@ -1057,3 +1057,20 @@
     max-width: 120px;
   }
 }
+
+/* ---------- Vue Router active states (replaces Angular routerLinkActive) ---------- */
+
+.bx-bar-link.router-link-active,
+.bx-tab.router-link-active {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* Naive UI buttons keep the board voice: uppercase dot-matrix labels. */
+
+.bx-ctl-btn {
+  font-family: var(--font-board);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}

@@ -1,41 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom } from 'rxjs';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
-  CinemaPatterns,
+  CinemaServiceStub,
+  grpcSend,
   SERVICE_NAMES,
   ShowtimeSeatMap,
   ShowtimeSeat,
 } from '@ticketing/shared';
 
-/**
- * Validates seat/showtime state by querying cinema-service over TCP.
- * ticket-service does NOT own seat geometry; it only owns availability
- * state (held/booked) via Redis locks. Seat snapshots are captured at
- * hold time so a deleted theater or changed seat layout cannot corrupt
- * an existing booking.
- */
 @Injectable()
 export class SeatAvailabilityService {
-  constructor(
-    @Inject(SERVICE_NAMES.CINEMA) private readonly cinemaClient: ClientProxy,
-  ) {}
+  private readonly cinema: CinemaServiceStub;
 
-  /** Fetch the seat map for a showtime. Throws on missing showtime. */
-  async getSeatMap(showtimeId: string): Promise<ShowtimeSeatMap> {
-    return firstValueFrom(
-      this.cinemaClient.send<ShowtimeSeatMap>(CinemaPatterns.SHOWTIME_SEATS, {
-        id: showtimeId,
-      }),
-    );
+  constructor(@Inject(SERVICE_NAMES.CINEMA) client: ClientGrpc) {
+    this.cinema = client.getService<CinemaServiceStub>('CinemaService');
   }
 
-  /**
-   * Validate that all requested seatIds exist on the showtime's seat map
-   * and are not disabled. Returns the matching seat definitions plus the
-   * full seat map (pricing/movie/theater info) in a single trip.
-   * Throws if any seat is unknown/disabled or the showtime doesn't exist.
-   */
+  async getSeatMap(showtimeId: string): Promise<ShowtimeSeatMap> {
+    return grpcSend(this.cinema.GetSeatMap({ id: showtimeId }));
+  }
+
   async validateSeats(
     showtimeId: string,
     seatIds: string[],

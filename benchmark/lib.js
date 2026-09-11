@@ -150,13 +150,13 @@ export function holdSeats(token, showtimeId, seatIds) {
   return res.json('bookingId') || res.json('id');
 }
 
-// Pays for a booking with the mock provider (SUCCESS). Returns ticket codes.
+// Creates a Xendit invoice for a booking. Returns the checkout URL
+// (the booking stays PENDING until the Xendit webhook confirms it, so
+// there are no ticket codes to return at this stage).
 export function payBooking(token, bookingId) {
-  const res = http.post(
-    `${BASE_URL}/bookings/${bookingId}/pay`,
-    jsonBody({ paymentMethod: 'MOCK', simulate: 'SUCCESS' }),
-    { headers: { ...JSON_HEADERS, ...bearer(token) } },
-  );
+  const res = http.post(`${BASE_URL}/bookings/${bookingId}/pay`, jsonBody({}), {
+    headers: { ...JSON_HEADERS, ...bearer(token) },
+  });
   metrics.booking_pay_duration.add(res.timings.duration);
   if (res.status >= 400) {
     metrics.pay_error_rate.add(1);
@@ -164,8 +164,7 @@ export function payBooking(token, bookingId) {
   if (!record('pay', res, 200)) {
     fail(`pay failed (${res.status}): ${res.body}`);
   }
-  const tickets = res.json('tickets') || [];
-  return tickets.map((t) => t.code);
+  return res.json('checkoutUrl');
 }
 
 // Public ticket lookup by code.

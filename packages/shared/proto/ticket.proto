@@ -1,0 +1,193 @@
+syntax = "proto3";
+
+package ticket;
+
+import "google/protobuf/empty.proto";
+
+service TicketService {
+  rpc Ping(google.protobuf.Empty) returns (PingReply) {}
+  rpc Hold(HoldSeatsRequest) returns (HoldResponse) {}
+  rpc Cancel(BookingCancelRequest) returns (BookingDto) {}
+  rpc Get(BookingGetRequest) returns (BookingDto) {}
+  rpc List(BookingListRequest) returns (PaginatedBookings) {}
+  rpc Availability(BookingAvailabilityRequest) returns (BookingAvailabilityResponse) {}
+  rpc Charge(PaymentChargeRequest) returns (PaymentChargeResponse) {}
+  rpc Confirm(PaymentConfirmRequest) returns (BookingDto) {}
+  rpc Webhook(PaymentWebhookRequest) returns (Empty) {}
+  rpc CreateTickets(BookingGetRequest) returns (TicketList) {}
+  rpc GetTicketByCode(TicketByCodeRequest) returns (TicketLookupDto) {}
+}
+
+message PingReply {
+  string service = 1;
+  string status = 2;
+  string timestamp = 3;
+}
+
+message Money {
+  int32 amount = 1;
+  string currency = 2;
+}
+
+message PaginationMeta {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  int32 totalPages = 4;
+}
+
+message HoldSeatsRequest {
+  string userId = 1;
+  string showtimeId = 2;
+  repeated string seatIds = 3;
+}
+
+message BookingGetRequest {
+  string id = 1;
+  string userId = 2;
+}
+
+message BookingCancelRequest {
+  string id = 1;
+  string userId = 2;
+}
+
+message BookingListRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message HeldSeat {
+  string seatId = 1;
+  string rowLabel = 2;
+  int32 seatNumber = 3;
+  string category = 4;
+  int32 priceAmount = 5;
+  string priceCurrency = 6;
+}
+
+message HoldResponse {
+  string bookingId = 1;
+  string status = 2;
+  string expiresAt = 3;
+  int32 totalAmount = 4;
+  string currency = 5;
+  repeated HeldSeat seats = 6;
+  PaymentSummary payment = 7;
+}
+
+message PaymentSummary {
+  string providerId = 1;
+  string method = 2;
+  string status = 3;
+  string checkoutUrl = 4;
+  string invoiceId = 5;
+}
+
+message BookingSeatSnapshot {
+  string seatId = 1;
+  string rowLabel = 2;
+  int32 seatNumber = 3;
+  string category = 4;
+  int32 priceAmount = 5;
+  string priceCurrency = 6;
+}
+
+message BookingDto {
+  string id = 1;
+  string userId = 2;
+  string showtimeId = 3;
+  int32 totalAmount = 4;
+  string currency = 5;
+  string status = 6;
+  string expiresAt = 7;
+  string createdAt = 8;
+  string updatedAt = 9;
+  repeated BookingSeatSnapshot seats = 10;
+}
+
+message PaginatedBookings {
+  repeated BookingDto items = 1;
+  PaginationMeta meta = 2;
+}
+
+message PaymentChargeRequest {
+  string bookingId = 1;
+  string userId = 2;
+  string returnUrl = 3;
+  string payerEmail = 4;
+}
+
+message PaymentChargeResponse {
+  string providerId = 1;
+  bool paid = 2;
+  string providerTxnId = 3;
+  string paidAt = 4;
+  string receiptUrl = 5;
+  string checkoutUrl = 6;
+  string invoiceId = 7;
+  string method = 8;
+}
+
+message PaymentConfirmRequest {
+  string bookingId = 1;
+  string userId = 2;
+  bool paid = 3;
+  string providerId = 4;
+  string paidAt = 5;
+  string receipt = 6;
+}
+
+message PaymentWebhookRequest {
+  string signature = 1;
+  string body = 2;
+}
+
+message TicketByCodeRequest {
+  string code = 1;
+}
+
+message TicketDto {
+  string id = 1;
+  string bookingId = 2;
+  string code = 3;
+  string movieTitle = 4;
+  string theaterName = 5;
+  string startsAt = 6;
+  string seatId = 7;
+  string row = 8;
+  int32 number = 9;
+  string createdAt = 10;
+}
+
+message TicketList {
+  repeated TicketDto items = 1;
+}
+
+message TicketLookupDto {
+  string id = 1;
+  string code = 2;
+  string bookingId = 3;
+  string showtimeId = 4;
+  string movieTitle = 5;
+  string theaterName = 6;
+  string startsAt = 7;
+  string seatId = 8;
+  string row = 9;
+  int32 number = 10;
+}
+
+message BookingAvailabilityRequest {
+  string showtimeId = 1;
+}
+
+message AvailabilitySeat {
+  string seatId = 1;
+  string status = 2;
+}
+
+message BookingAvailabilityResponse {
+  string showtimeId = 1;
+  repeated AvailabilitySeat seats = 2;
+}

@@ -1,10 +1,10 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern } from '@nestjs/microservices';
+import { GrpcMethod } from '@nestjs/microservices';
 import { HealthPatterns, HealthResponse } from '@ticketing/shared';
 
 @Controller()
 export class HealthController {
-  @MessagePattern(HealthPatterns.PING)
+  @GrpcMethod('UserService', HealthPatterns.PING)
   ping(): HealthResponse {
     return {
       service: 'user-service',

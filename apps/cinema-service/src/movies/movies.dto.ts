@@ -117,6 +117,19 @@ export class CreateTheaterDto {
   @ValidateNested()
   @Type(() => LayoutDto)
   layout: LayoutDto;
+
+  /** Flat proto-wire fields, populated when the request arrives over gRPC. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  rows?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  cols?: number;
 }
 
 export class UpdateTheaterDto {

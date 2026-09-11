@@ -5,8 +5,16 @@ import { buildPgUrl, PG_DBS } from '@ticketing/shared';
 import { User } from '../users/user.entity';
 
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@example.com';
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'admin1234';
+// No default password: a predictable admin credential in a deployed env is
+// an account-takeover waiting to happen. Require an explicit value.
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME ?? 'Admin';
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
+  console.error(
+    '[seed] Refusing to seed admin: set SEED_ADMIN_PASSWORD (min 12 chars).',
+  );
+  process.exit(1);
+}
 
 async function main() {
   const dataSource = new DataSource({
