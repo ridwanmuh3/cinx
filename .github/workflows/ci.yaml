@@ -20,6 +20,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Fails in seconds — run before the multi-minute lint/test/build steps.
+      - name: Format check
+        run: pnpm format:check
+
       - name: Lint
         run: pnpm lint
 
@@ -31,9 +35,6 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Format check
-        run: pnpm format:check
 
       - name: Validate compose files (incl. observability stack)
         run: |
