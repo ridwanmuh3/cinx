@@ -69,6 +69,9 @@ async function bootstrap() {
   app.use('/api/v1/auth/login', authLimiter);
   app.use('/api/v1/auth/register', authLimiter);
   app.use('/api/v1/bookings', payLimiter);
+  // Public door-scan lookup: the ticket code is the only credential, so
+  // throttle enumeration attempts hard (10/min/IP).
+  app.use('/api/v1/tickets', payLimiter);
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);
