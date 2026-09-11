@@ -30,7 +30,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'pnpm exec ng serve --port 4200 --host 0.0.0.0',
+      command: 'pnpm exec vite --port 4200 --host 0.0.0.0',
       url: 'http://localhost:4200',
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,

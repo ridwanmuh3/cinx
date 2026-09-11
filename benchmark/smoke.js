@@ -13,7 +13,6 @@ import {
   getAvailableSeatIds,
   holdSeats,
   payBooking,
-  lookupTicket,
 } from './lib.js';
 
 export const options = {
@@ -34,10 +33,7 @@ export default function () {
   const seatIds = getAvailableSeatIds(showtimeId);
 
   const bookingId = holdSeats(token, showtimeId, seatIds);
-  const codes = payBooking(token, bookingId);
-  for (const code of codes) {
-    lookupTicket(code);
-  }
+  payBooking(token, bookingId);
 
   sleep(1);
 }

@@ -14,6 +14,7 @@ on:
     paths:
       - 'apps/**'
       - 'packages/**'
+      - 'infra/**'
       - 'docker-compose.yml'
       - '.github/workflows/cd.yaml'
   workflow_dispatch:

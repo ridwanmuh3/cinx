@@ -177,6 +177,50 @@ Images are tagged `ghcr.io/ridwanmuh3/ticketing-cinema/<service>:${IMAGE_TAG:-la
 Other recipes: `pnpm docker:down`, `pnpm docker:logs`, `pnpm docker:images`,
 `pnpm docker:config`, `pnpm docker:psql`.
 
+## Observability (OpenTelemetry → Tempo + Prometheus → Grafana)
+
+Every backend service (`gateway`, `user-service`, `cinema-service`,
+`ticket-service`, `notification-service`) and the Vue SPA export
+**traces + metrics** via OTLP:
+
+```text
+Vue SPA --(POST /api/v1/otel)--> gateway --(OTLP/HTTP)--> otel-collector
+gateway --(gRPC, traceparent in metadata)--> user/cinema/ticket-service
+ticket-service --(OTLP/HTTP)--> otel-collector --+--> Tempo (traces)
+                                                 +--> Prometheus :8889 (metrics)
+Grafana :3001 reads Tempo + Prometheus (pre-provisioned).
+```
+
+One booking flow shares a single trace ID end to end: browser fetch →
+gateway (Express) → ticket-service (gRPC) → Postgres/Redis spans, plus
+custom spans (`seats.hold`, `payment.charge`, `payment.webhook`,
+`booking.confirm`, `notification.send`) and business counters
+(`booking_holds_total`, `booking_confirms_total`,
+`payment_webhook_received_total`). The RMQ hop links via `traceparent`
+stamped into message headers (`injectTraceHeaders` in
+`@ticketing/shared`; publishers must call it — see `RmqTraceInterceptor`).
+
+```bash
+cp .env.example .env  # then open Grafana at http://localhost:3001
+pnpm docker:up        # full stack incl. otel-collector, tempo, prometheus, grafana
+pnpm demo             # generate traffic, then Explore → Tempo in Grafana
+```
+
+| Surface    | URL                         |
+| ---------- | --------------------------- |
+| Grafana    | http://localhost:3001       |
+| Tempo      | internal only (via Grafana) |
+| Prometheus | internal only (via Grafana) |
+
+Knobs (`.env`): `OTEL_TRACES_SAMPLER_ARG` (default `1.0`; lower in
+production), `OTEL_METRIC_EXPORT_INTERVAL` (default `60000` ms),
+`OTEL_SDK_DISABLED=true` (disable telemetry entirely),
+`VITE_OTEL_SAMPLE_RATIO` (default `0.2` — browsers are sampled harder to
+bound volume). Privacy: span attributes carry only low-cardinality values
+(`showtime.id`, `booking.id`, `user.role`) — never emails, names, or tokens.
+With the collector stopped, services keep serving (spans drop after bounded
+retries); unit tests always run with the SDK disabled.
+
 ## CI/CD
 
 Two GitHub Actions workflows (run them locally with [act](https://github.com/nektos/act)):

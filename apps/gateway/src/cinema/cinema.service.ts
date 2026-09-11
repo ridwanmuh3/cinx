@@ -1,19 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
   BookingAvailabilityRequest,
   BookingAvailabilityResponse,
-  CinemaPatterns,
+  grpcSend,
   ListMoviesQuery,
   ListShowtimesQuery,
+  CinemaServiceStub,
   MovieCreateRequest,
   MovieDto,
   MovieUpdateRequest,
   PaginatedMovies,
   PaginatedShowtimes,
   PaginatedTheaters,
-  SERVICE_NAMES,
   SeatAvailabilityStatus,
+  SERVICE_NAMES,
   ShowtimeCreateRequest,
   ShowtimeDto,
   ShowtimeSeatMap,
@@ -21,9 +22,8 @@ import {
   TheaterCreateRequest,
   TheaterDto,
   TheaterUpdateRequest,
-  TicketPatterns,
+  TicketServiceStub,
 } from '@ticketing/shared';
-import { rpcSend } from '../common/rpc/rpc.util';
 
 export interface GatewaySeat {
   id: string;
@@ -43,81 +43,93 @@ export interface GatewaySeatMap {
 
 @Injectable()
 export class CinemaService {
+  private readonly cinema: CinemaServiceStub;
+  private readonly ticket: TicketServiceStub;
+
   constructor(
-    @Inject(SERVICE_NAMES.CINEMA) private readonly cinemaClient: ClientProxy,
-    @Inject(SERVICE_NAMES.TICKET) private readonly ticketClient: ClientProxy,
-  ) {}
+    @Inject(SERVICE_NAMES.CINEMA) cinemaClient: ClientGrpc,
+    @Inject(SERVICE_NAMES.TICKET) ticketClient: ClientGrpc,
+  ) {
+    this.cinema = cinemaClient.getService<CinemaServiceStub>('CinemaService');
+    this.ticket = ticketClient.getService<TicketServiceStub>('TicketService');
+  }
 
   listMovies(q: ListMoviesQuery): Promise<PaginatedMovies> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.MOVIES_LIST, q);
+    return grpcSend(this.cinema.ListMovies(q));
   }
 
   getMovie(id: string): Promise<MovieDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.MOVIE_GET, { id });
+    return grpcSend(this.cinema.GetMovie({ id }));
   }
 
   createMovie(dto: MovieCreateRequest): Promise<MovieDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.MOVIE_CREATE, dto);
+    return grpcSend(this.cinema.CreateMovie(dto));
   }
 
   updateMovie(id: string, dto: MovieUpdateRequest): Promise<MovieDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.MOVIE_UPDATE, {
-      id,
-      ...dto,
-    });
+    return grpcSend(this.cinema.UpdateMovie({ id, ...dto }));
   }
 
   deleteMovie(id: string): Promise<void> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.MOVIE_DELETE, { id });
+    return grpcSend(this.cinema.DeleteMovie({ id })).then(() => undefined);
   }
 
   listTheaters(q: {
     page?: number;
     limit?: number;
   }): Promise<PaginatedTheaters> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.THEATERS_LIST, q);
+    return grpcSend(this.cinema.ListTheaters(q));
   }
 
   getTheater(id: string): Promise<TheaterDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.THEATER_GET, { id });
+    return grpcSend(this.cinema.GetTheater({ id }));
   }
 
-  createTheater(dto: TheaterCreateRequest): Promise<TheaterDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.THEATER_CREATE, dto);
+  createTheater(
+    dto: Omit<TheaterCreateRequest, 'rows' | 'cols'> & {
+      layout?: { rows: number; cols: number };
+      rows?: number;
+      cols?: number;
+    },
+  ): Promise<TheaterDto> {
+    // HTTP DTO carries nested layout; the proto message is flat rows/cols.
+    const layout = dto.layout ?? { rows: dto.rows ?? 0, cols: dto.cols ?? 0 };
+    return grpcSend(
+      this.cinema.CreateTheater({
+        name: dto.name,
+        address: dto.address,
+        rows: layout.rows,
+        cols: layout.cols,
+      }),
+    );
   }
 
   updateTheater(id: string, dto: TheaterUpdateRequest): Promise<TheaterDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.THEATER_UPDATE, {
-      id,
-      ...dto,
-    });
+    return grpcSend(this.cinema.UpdateTheater({ id, ...dto }));
   }
 
   deleteTheater(id: string): Promise<void> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.THEATER_DELETE, { id });
+    return grpcSend(this.cinema.DeleteTheater({ id })).then(() => undefined);
   }
 
   listShowtimes(q: ListShowtimesQuery): Promise<PaginatedShowtimes> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.SHOWTIMES_LIST, q);
+    return grpcSend(this.cinema.ListShowtimes(q));
   }
 
   getShowtime(id: string): Promise<ShowtimeDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.SHOWTIME_GET, { id });
+    return grpcSend(this.cinema.GetShowtime({ id }));
   }
 
   createShowtime(dto: ShowtimeCreateRequest): Promise<ShowtimeDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.SHOWTIME_CREATE, dto);
+    return grpcSend(this.cinema.CreateShowtime(dto));
   }
 
   updateShowtime(id: string, dto: ShowtimeUpdateRequest): Promise<ShowtimeDto> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.SHOWTIME_UPDATE, {
-      id,
-      ...dto,
-    });
+    return grpcSend(this.cinema.UpdateShowtime({ id, ...dto }));
   }
 
   deleteShowtime(id: string): Promise<void> {
-    return rpcSend(this.cinemaClient, CinemaPatterns.SHOWTIME_DELETE, { id });
+    return grpcSend(this.cinema.DeleteShowtime({ id })).then(() => undefined);
   }
 
   /**
@@ -128,36 +140,28 @@ export class CinemaService {
    */
   async seatMap(id: string): Promise<GatewaySeatMap> {
     const [map, availability] = await Promise.all([
-      rpcSend<ShowtimeSeatMap>(
-        this.cinemaClient,
-        CinemaPatterns.SHOWTIME_SEATS,
-        {
-          id,
-        },
-      ),
+      grpcSend(this.cinema.GetSeatMap({ id })),
       this.getAvailability(id),
     ]);
 
     const statusBySeat = new Map<string, SeatAvailabilityStatus>();
-    for (const seat of availability.seats) {
+    for (const seat of availability.seats ?? []) {
       statusBySeat.set(seat.seatId, seat.status);
     }
 
-    return {
-      showtimeId: map.showtimeId,
-      price: map.price,
-      seats: map.seats.map((seat) => ({
-        id: seat.id,
-        row: seat.rowLabel,
-        number: seat.number,
-        category: seat.category,
-        isAccessible: seat.isAccessible,
-        isDisabled: seat.isDisabled,
-        status: seat.isDisabled
-          ? 'BOOKED'
-          : (statusBySeat.get(seat.id) ?? 'AVAILABLE'),
-      })),
-    };
+    const seats = map.seats.map((seat) => ({
+      id: seat.id,
+      row: seat.rowLabel,
+      number: seat.number,
+      category: seat.category,
+      isAccessible: seat.isAccessible,
+      isDisabled: seat.isDisabled,
+      status: seat.isDisabled
+        ? 'BOOKED'
+        : (statusBySeat.get(seat.id) ?? 'AVAILABLE'),
+    }));
+
+    return { showtimeId: map.showtimeId, price: map.price, seats };
   }
 
   /**
@@ -168,12 +172,9 @@ export class CinemaService {
   private async getAvailability(
     showtimeId: string,
   ): Promise<BookingAvailabilityResponse> {
+    const req: BookingAvailabilityRequest = { showtimeId };
     try {
-      return await rpcSend<BookingAvailabilityResponse>(
-        this.ticketClient,
-        TicketPatterns.BOOKING_AVAILABILITY,
-        { showtimeId } satisfies BookingAvailabilityRequest,
-      );
+      return await grpcSend(this.ticket.Availability(req));
     } catch {
       return { showtimeId, seats: [] };
     }

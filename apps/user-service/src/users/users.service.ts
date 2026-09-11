@@ -7,6 +7,7 @@ import { Repository } from 'typeorm';
 import {
   LoginResponse,
   rpcErrorPayload,
+  UserContactDto,
   UserDto,
   UserRole,
 } from '@ticketing/shared';
@@ -66,6 +67,18 @@ export class UsersService {
       throw new RpcException(rpcErrorPayload(401, 'Invalid token'));
     }
     return this.toDto(user);
+  }
+
+  async get(userId: string): Promise<UserContactDto> {
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new RpcException(rpcErrorPayload(404, 'User not found'));
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    };
   }
 
   private issueToken(user: User): LoginResponse {

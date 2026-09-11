@@ -1,17 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
   BookingDto,
+  Empty,
+  grpcSend,
+  HoldResponse,
   MovieSummary,
   PaginatedBookings,
+  PaymentChargeResponse,
   SERVICE_NAMES,
   TheaterSummary,
   TicketDto,
+  TicketList,
   TicketLookupDto,
-  TicketPatterns,
+  TicketServiceStub,
 } from '@ticketing/shared';
 import { CinemaService } from '../cinema/cinema.service';
-import { rpcSend } from '../common/rpc/rpc.util';
 import { HoldSeatsDto } from './dto/hold.dto';
 import { PayBookingDto } from './dto/pay.dto';
 
@@ -25,19 +29,30 @@ export interface BookingView extends BookingDto {
   tickets?: TicketDto[];
 }
 
+export interface PayResult extends BookingView {
+  checkoutUrl: string | null;
+  invoiceId: string | null;
+}
+
 @Injectable()
 export class BookingsService {
-  constructor(
-    @Inject(SERVICE_NAMES.TICKET) private readonly ticketClient: ClientProxy,
-    private readonly cinema: CinemaService,
-  ) {}
+  private readonly ticket: TicketServiceStub;
 
-  hold(userId: string, dto: HoldSeatsDto) {
-    return rpcSend(this.ticketClient, TicketPatterns.BOOKING_HOLD, {
-      userId,
-      showtimeId: dto.showtimeId,
-      seatIds: dto.seatIds,
-    });
+  constructor(
+    @Inject(SERVICE_NAMES.TICKET) ticketClient: ClientGrpc,
+    private readonly cinema: CinemaService,
+  ) {
+    this.ticket = ticketClient.getService<TicketServiceStub>('TicketService');
+  }
+
+  hold(userId: string, dto: HoldSeatsDto): Promise<HoldResponse> {
+    return grpcSend(
+      this.ticket.Hold({
+        userId,
+        showtimeId: dto.showtimeId,
+        seatIds: dto.seatIds,
+      }),
+    );
   }
 
   async list(
@@ -45,54 +60,52 @@ export class BookingsService {
     page: number,
     limit: number,
   ): Promise<PaginatedBookings> {
-    const result = await rpcSend<PaginatedBookings>(
-      this.ticketClient,
-      TicketPatterns.BOOKING_LIST,
-      { userId, page, limit },
+    const result = await grpcSend<PaginatedBookings>(
+      this.ticket.List({ userId, page, limit }),
     );
     return {
       ...result,
-      items: await Promise.all(result.items.map((b) => this.enrich(b))),
+      items: await Promise.all((result.items ?? []).map((b) => this.enrich(b))),
     };
   }
 
   async get(userId: string, id: string): Promise<BookingView> {
-    const booking = await rpcSend<BookingDto>(
-      this.ticketClient,
-      TicketPatterns.BOOKING_GET,
-      { id, userId },
-    );
+    const booking = await grpcSend<BookingDto>(this.ticket.Get({ id, userId }));
     return this.enrich(booking);
   }
 
-  /** Mock payment orchestration: charge via the provider, then confirm. */
+  /**
+   * Xendit payment: create a hosted invoice for the booking and return its
+   * checkout URL. The user pays on Xendit's page; confirmation arrives via
+   * the Xendit webhook (no synchronous confirm here).
+   */
   async pay(
     userId: string,
     id: string,
     dto: PayBookingDto,
-  ): Promise<BookingView> {
-    const charge = await rpcSend<{
-      providerId: string;
-      paid: boolean;
-      paidAt: string | null;
-      receiptUrl: string | null;
-    }>(this.ticketClient, TicketPatterns.PAYMENT_CHARGE, {
-      simulate: dto.simulate,
-    });
-
-    const booking = await rpcSend<BookingDto>(
-      this.ticketClient,
-      TicketPatterns.PAYMENT_CONFIRM,
-      {
+  ): Promise<PayResult> {
+    const charge = await grpcSend<PaymentChargeResponse>(
+      this.ticket.Charge({
         bookingId: id,
         userId,
-        paid: charge.paid,
-        providerId: charge.providerId,
-        paidAt: charge.paidAt,
-        receipt: charge.receiptUrl,
-      },
+        returnUrl: dto.returnUrl ?? '',
+        payerEmail: dto.payerEmail ?? '',
+      }),
     );
-    return this.enrich(booking);
+
+    const booking = await this.enrich(
+      await grpcSend<BookingDto>(this.ticket.Get({ id, userId })),
+    );
+    return {
+      ...booking,
+      checkoutUrl: charge.checkoutUrl ?? null,
+      invoiceId: charge.invoiceId ?? null,
+    };
+  }
+
+  /** Forward a verified Xendit webhook to ticket-service. */
+  webhook(signature: string, body: string): Promise<Empty> {
+    return grpcSend(this.ticket.Webhook({ signature, body }));
   }
 
   cancel(userId: string, id: string): Promise<BookingView> {
@@ -100,16 +113,12 @@ export class BookingsService {
   }
 
   getTicketByCode(code: string): Promise<TicketLookupDto> {
-    return rpcSend(this.ticketClient, TicketPatterns.TICKET_GET_BY_CODE, {
-      code,
-    });
+    return grpcSend(this.ticket.GetTicketByCode({ code }));
   }
 
   private async cancelInner(userId: string, id: string): Promise<BookingView> {
-    const booking = await rpcSend<BookingDto>(
-      this.ticketClient,
-      TicketPatterns.BOOKING_CANCEL,
-      { id, userId },
+    const booking = await grpcSend<BookingDto>(
+      this.ticket.Cancel({ id, userId }),
     );
     return this.enrich(booking);
   }
@@ -126,15 +135,17 @@ export class BookingsService {
     }
     if (booking.status === 'CONFIRMED') {
       try {
-        view.tickets = await rpcSend<TicketDto[]>(
-          this.ticketClient,
-          TicketPatterns.TICKET_CREATE,
-          { id: booking.id, userId: booking.userId },
-        );
+        view.tickets = await this.createTickets(booking);
       } catch {
         // tickets already issued or unavailable — non-fatal
       }
     }
     return view;
+  }
+
+  private createTickets(booking: BookingDto): Promise<TicketDto[]> {
+    return grpcSend<TicketList>(
+      this.ticket.CreateTickets({ id: booking.id, userId: booking.userId }),
+    ).then((list) => list.items ?? []);
   }
 }

@@ -1,19 +1,30 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { SERVICE_NAMES, TCP_PORTS } from '@ticketing/shared';
+import {
+  GRPC_PACKAGES,
+  GRPC_PORTS,
+  protoPath,
+  SERVICE_NAMES,
+} from '@ticketing/shared';
 import { SeatAvailabilityService } from './seat-availability.service';
-
-export const CINEMA_CLIENT = Symbol('CINEMA_CLIENT');
 
 @Module({
   imports: [
     ClientsModule.register([
       {
         name: SERVICE_NAMES.CINEMA,
-        transport: Transport.TCP,
+        transport: Transport.GRPC,
         options: {
-          host: process.env.CINEMA_HOST ?? '127.0.0.1',
-          port: Number(process.env.CINEMA_PORT ?? TCP_PORTS.CINEMA),
+          package: GRPC_PACKAGES.CINEMA,
+          protoPath: protoPath('cinema.proto'),
+          url: `${process.env.CINEMA_HOST ?? '127.0.0.1'}:${Number(process.env.CINEMA_PORT) || GRPC_PORTS.CINEMA}`,
+          loader: {
+            keepCase: true,
+            longs: String,
+            enums: String,
+            defaults: false,
+            oneofs: true,
+          },
         },
       },
     ]),

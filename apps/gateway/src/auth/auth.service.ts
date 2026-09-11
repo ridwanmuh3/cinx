@@ -1,30 +1,40 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientGrpc } from '@nestjs/microservices';
 import {
+  grpcSend,
   LoginResponse,
   SERVICE_NAMES,
   UserDto,
-  UserPatterns,
+  UserServiceStub,
 } from '@ticketing/shared';
-import { rpcSend } from '../common/rpc/rpc.util';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
-  constructor(
-    @Inject(SERVICE_NAMES.USER) private readonly userClient: ClientProxy,
-  ) {}
+  private readonly users: UserServiceStub;
+
+  constructor(@Inject(SERVICE_NAMES.USER) client: ClientGrpc) {
+    this.users = client.getService<UserServiceStub>('UserService');
+  }
 
   register(dto: RegisterDto): Promise<UserDto> {
-    return rpcSend(this.userClient, UserPatterns.REGISTER, dto);
+    return grpcSend(
+      this.users.Register({
+        email: dto.email,
+        password: dto.password,
+        name: dto.name,
+      }),
+    );
   }
 
   login(dto: LoginDto): Promise<LoginResponse> {
-    return rpcSend(this.userClient, UserPatterns.LOGIN, dto);
+    return grpcSend(
+      this.users.Login({ email: dto.email, password: dto.password }),
+    );
   }
 
   me(userId: string): Promise<UserDto> {
-    return rpcSend(this.userClient, UserPatterns.ME, { userId });
+    return grpcSend(this.users.Me({ userId }));
   }
 }

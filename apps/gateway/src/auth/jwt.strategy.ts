@@ -14,13 +14,23 @@ export interface JwtPayload {
  * tokens), so it can verify tokens locally without a round-trip. `sub` is
  * the userId. role is embedded in the token so the admin guard is cheap.
  */
+// Shared secret with user-service (which signs tokens). Fail fast rather
+// than silently trusting a known dev secret — OWASP A02/A07.
+const JWT_SECRET = process.env.JWT_SECRET ?? '';
+if (JWT_SECRET.length < 32) {
+  throw new Error(
+    'JWT_SECRET must be set to at least 32 characters (openssl rand -base64 32)',
+  );
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET ?? 'dev-secret-change-me',
+      secretOrKey: JWT_SECRET,
+      algorithms: ['HS256'],
     });
   }
 

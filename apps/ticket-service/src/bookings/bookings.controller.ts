@@ -1,5 +1,5 @@
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { GrpcMethod, Payload } from '@nestjs/microservices';
 import {
   BookingAvailabilityRequest,
   BookingAvailabilityResponse,
@@ -7,14 +7,16 @@ import {
   BookingDto,
   BookingGetRequest,
   BookingListRequest,
+  Empty,
   HoldResponse,
   HoldSeatsRequest,
   PaginatedBookings,
   PaymentChargeRequest,
   PaymentChargeResponse,
   PaymentConfirmRequest,
+  PaymentWebhookRequest,
   TicketByCodeRequest,
-  TicketDto,
+  TicketList,
   TicketLookupDto,
   TicketPatterns,
 } from '@ticketing/shared';
@@ -24,49 +26,54 @@ import { BookingsService } from './bookings.service';
 export class BookingsController {
   constructor(private readonly bookings: BookingsService) {}
 
-  @MessagePattern(TicketPatterns.BOOKING_HOLD)
+  @GrpcMethod('TicketService', TicketPatterns.BOOKING_HOLD)
   hold(@Payload() dto: HoldSeatsRequest): Promise<HoldResponse> {
     return this.bookings.hold(dto);
   }
 
-  @MessagePattern(TicketPatterns.BOOKING_CANCEL)
+  @GrpcMethod('TicketService', TicketPatterns.BOOKING_CANCEL)
   cancel(@Payload() dto: BookingCancelRequest): Promise<BookingDto> {
     return this.bookings.cancel(dto);
   }
 
-  @MessagePattern(TicketPatterns.BOOKING_GET)
+  @GrpcMethod('TicketService', TicketPatterns.BOOKING_GET)
   get(@Payload() dto: BookingGetRequest): Promise<BookingDto> {
     return this.bookings.get(dto);
   }
 
-  @MessagePattern(TicketPatterns.BOOKING_LIST)
+  @GrpcMethod('TicketService', TicketPatterns.BOOKING_LIST)
   list(@Payload() dto: BookingListRequest): Promise<PaginatedBookings> {
     return this.bookings.list(dto);
   }
 
-  @MessagePattern(TicketPatterns.BOOKING_AVAILABILITY)
+  @GrpcMethod('TicketService', TicketPatterns.BOOKING_AVAILABILITY)
   availability(
     @Payload() dto: BookingAvailabilityRequest,
   ): Promise<BookingAvailabilityResponse> {
     return this.bookings.availability(dto);
   }
 
-  @MessagePattern(TicketPatterns.PAYMENT_CHARGE)
+  @GrpcMethod('TicketService', TicketPatterns.PAYMENT_CHARGE)
   charge(@Payload() dto: PaymentChargeRequest): Promise<PaymentChargeResponse> {
     return this.bookings.charge(dto);
   }
 
-  @MessagePattern(TicketPatterns.PAYMENT_CONFIRM)
+  @GrpcMethod('TicketService', TicketPatterns.PAYMENT_CONFIRM)
   confirm(@Payload() dto: PaymentConfirmRequest): Promise<BookingDto> {
     return this.bookings.confirm(dto);
   }
 
-  @MessagePattern(TicketPatterns.TICKET_CREATE)
-  createTickets(@Payload() dto: BookingGetRequest): Promise<TicketDto[]> {
+  @GrpcMethod('TicketService', TicketPatterns.PAYMENT_WEBHOOK)
+  webhook(@Payload() dto: PaymentWebhookRequest): Promise<Empty> {
+    return this.bookings.webhook(dto);
+  }
+
+  @GrpcMethod('TicketService', TicketPatterns.TICKET_CREATE)
+  createTickets(@Payload() dto: BookingGetRequest): Promise<TicketList> {
     return this.bookings.createTickets(dto);
   }
 
-  @MessagePattern(TicketPatterns.TICKET_GET_BY_CODE)
+  @GrpcMethod('TicketService', TicketPatterns.TICKET_GET_BY_CODE)
   getTicketByCode(
     @Payload() dto: TicketByCodeRequest,
   ): Promise<TicketLookupDto> {

@@ -1,56 +1,51 @@
-You are an expert in TypeScript, Angular, and scalable web application development. You write functional, maintainable, performant, and accessible code following Angular and TypeScript best practices.
+You are an expert in TypeScript, Vue 3, and scalable web application development. You write functional, maintainable, performant, and accessible code following Vue and TypeScript best practices.
 
 ## TypeScript Best Practices
 
 - Use strict type checking
 - Prefer type inference when the type is obvious
 - Avoid the `any` type; use `unknown` when type is uncertain
+- Use `type` imports (`import type { X }`) for type-only imports
 
-## Angular Best Practices
+## Vue Best Practices
 
-- Always use standalone components over NgModules
-- Must NOT set `standalone: true` inside Angular decorators. It's the default in Angular v20+.
-- Do NOT set `changeDetection: ChangeDetectionStrategy.OnPush` explicitly. `OnPush` is the default in Angular v22+.
-- Use signals for state management
-- Implement lazy loading for feature routes
-- Do NOT use the `@HostBinding` and `@HostListener` decorators. Put host bindings inside the `host` object of the `@Component` or `@Directive` decorator instead
-- Use `NgOptimizedImage` for all static images.
-  - `NgOptimizedImage` does not work for inline base64 images.
+- Always use `<script setup lang="ts">` composition API
+- Use `ref`/`computed`/`watch` for local state; keep state transformations pure
+- Prefer `computed` over methods for derived values used in templates
+- Use lazy-loaded routes (`() => import(...)`) for feature routes
+- Implement route guards (auth/admin) in `src/router.ts` via `beforeEach`
+- Keep components small and focused on a single responsibility
+
+## State Management
+
+- Use Pinia stores for shared/cross-component state (`src/stores/`)
+- Pinia setup-style stores (`defineStore('x', () => {...})`) are preferred
+- Do not mutate store state outside actions
+
+## UI Components
+
+- Use Naive UI components (NButton, NInput, NSelect, NDataTable, NForm, NDatePicker,
+  NMessage/NNotification, useDialog, etc.) instead of hand-rolled equivalents
+- Theme all Naive UI usage through `src/ui/theme.ts` overrides — do not hard-code
+  component colors outside it
+- Add `data-testid` attributes on Naive UI form controls where e2e tests target them
+- The CinX "Showtime Board" design tokens live in `src/styles.css` (CSS variables);
+  keep the board aesthetic: 0 radius, amber single-action, uppercase dot-matrix labels
+
+## Data & API
+
+- All HTTP calls go through `src/api.ts` (fetch-based client that injects the Bearer
+  token from the auth store and normalises errors into `ApiError`)
+- Do not call `fetch` directly from views
 
 ## Accessibility Requirements
 
 - It MUST pass all AXE checks.
 - It MUST follow all WCAG AA minimums, including focus management, color contrast, and ARIA attributes.
 
-### Components
-
-- Keep components small and focused on a single responsibility
-- Use `input()` and `output()` functions instead of decorators
-- Use `computed()` for derived state
-- Prefer inline templates for small components
-- Prefer Signal Forms (`@angular/forms/signals`) for new forms. They are stable in Angular v22+ and provide signal-based state, type-safe field access, and schema-based validation
-- When not using Signal Forms, prefer Reactive forms instead of Template-driven ones
-- Do NOT use `ngClass`, use `class` bindings instead
-- Do NOT use `ngStyle`, use `style` bindings instead
-- When using external templates/styles, use paths relative to the component TS file.
-
-## State Management
-
-- Use signals for local component state
-- Use `computed()` for derived state
-- Keep state transformations pure and predictable
-- Do NOT use `mutate` on signals, use `update` or `set` instead
-
 ## Templates
 
-- Keep templates simple and avoid complex logic
-- Use native control flow (`@if`, `@for`, `@switch`) instead of `*ngIf`, `*ngFor`, `*ngSwitch`
-- Use the async pipe to handle observables
-- Do not assume globals like (`new Date()`) are available.
-
-## Services
-
-- Design services around a single responsibility
-- Use the `providedIn: 'root'` option for singleton services
-- Prefer the `@Service` decorator over `@Injectable({providedIn: 'root'})` for new singleton services (Angular v22+)
-- Use the `inject()` function instead of constructor injection
+- Keep templates simple and avoid complex logic in markup
+- Use `v-if`/`v-for`/`v-else` natively; prefer `computed` for derived display data
+- Preserve the e2e contract: seat buttons carry `bx-seat` classes, summary rows carry
+  `bx-summary-label`/`bx-summary-value`, ticket stubs carry `bx-stub-code`

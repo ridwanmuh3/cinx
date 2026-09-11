@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package user;
+
+import "google/protobuf/empty.proto";
+
+service UserService {
+  rpc Register(RegisterRequest) returns (UserReply) {}
+  rpc Login(LoginRequest) returns (LoginReply) {}
+  rpc Me(MeRequest) returns (UserReply) {}
+  rpc Get(GetRequest) returns (UserContactReply) {}
+  rpc Ping(google.protobuf.Empty) returns (PingReply) {}
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string name = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message MeRequest {
+  string userId = 1;
+}
+
+message GetRequest {
+  string userId = 1;
+}
+
+message UserReply {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  string role = 4;
+  string createdAt = 5;
+}
+
+message UserContactReply {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+message LoginReply {
+  string accessToken = 1;
+  string tokenType = 2;
+  int32 expiresIn = 3;
+  UserReply user = 4;
+}
+
+message PingReply {
+  string service = 1;
+  string status = 2;
+  string timestamp = 3;
+}

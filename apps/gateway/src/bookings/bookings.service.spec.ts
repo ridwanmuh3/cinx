@@ -1,23 +1,13 @@
-import { ClientProxy } from '@nestjs/microservices';
+import { ClientGrpc } from '@nestjs/microservices';
 import { of, throwError } from 'rxjs';
+import { TicketServiceStub } from '@ticketing/shared';
 import { CinemaService } from '../cinema/cinema.service';
 import { BookingsService } from './bookings.service';
 
-function clientResponding(
-  handlers: Record<string, (payload: unknown) => unknown>,
-): ClientProxy {
+function grpcClient(stub: Partial<TicketServiceStub>): ClientGrpc {
   return {
-    send: jest.fn((pattern: string, payload: unknown) => {
-      const handler = handlers[pattern];
-      if (!handler)
-        return throwError(() => new Error(`no handler for ${pattern}`));
-      try {
-        return of(handler(payload));
-      } catch (err) {
-        return throwError(() => err);
-      }
-    }),
-  } as unknown as ClientProxy;
+    getService: () => stub,
+  } as unknown as ClientGrpc;
 }
 
 describe('BookingsService', () => {
@@ -55,82 +45,72 @@ describe('BookingsService', () => {
   };
 
   function makeService(
-    handlers: Record<string, (payload: unknown) => unknown>,
+    stub: Partial<TicketServiceStub>,
     cinema?: CinemaService,
   ) {
-    const service = new BookingsService(
-      clientResponding(handlers),
+    return new BookingsService(
+      grpcClient(stub),
       cinema ??
         ({
           getShowtime: jest.fn().mockResolvedValue(showtimeDto),
         } as unknown as CinemaService),
     );
-    return service;
   }
 
-  it('pay charges the mock provider then confirms with the result', async () => {
+  it('pay creates a Xendit invoice and returns its checkout URL', async () => {
     const charge = {
-      providerId: 'p1',
-      paid: true,
-      paidAt: '2026-08-12T14:05:00Z',
-      receiptUrl: 'r',
+      providerId: 'cix-b1',
+      paid: false,
+      providerTxnId: null,
+      paidAt: null,
+      receiptUrl: null,
+      checkoutUrl: 'https://checkout.xendit.co/inv_1',
+      invoiceId: 'inv_1',
+      method: 'XENDIT' as const,
     };
-    const confirmArg: unknown[] = [];
+    const chargeArg: unknown[] = [];
     const service = makeService({
-      [TicketPatterns.PAYMENT_CHARGE]: () => charge,
-      [TicketPatterns.PAYMENT_CONFIRM]: (payload) => {
-        confirmArg.push(payload);
-        return { ...bookingDto, status: 'CONFIRMED' };
-      },
+      Charge: ((payload: unknown) => {
+        chargeArg.push(payload);
+        return of(charge);
+      }) as TicketServiceStub['Charge'],
+      Get: (() => of(bookingDto)) as TicketServiceStub['Get'],
     });
 
-    const result = await service.pay(userId, 'b1', { paymentMethod: 'MOCK' });
+    const result = await service.pay(userId, 'b1', {});
 
-    expect(confirmArg[0]).toEqual({
+    expect(chargeArg[0]).toEqual({
       bookingId: 'b1',
       userId,
-      paid: true,
-      providerId: 'p1',
-      paidAt: '2026-08-12T14:05:00Z',
-      receipt: 'r',
+      returnUrl: '',
+      payerEmail: '',
     });
-    expect(result.status).toBe('CONFIRMED');
+    expect(result.checkoutUrl).toBe('https://checkout.xendit.co/inv_1');
+    expect(result.invoiceId).toBe('inv_1');
     expect(result.movie?.title).toBe('The Grand Adventure');
   });
 
-  it('pay with simulate FAILURE passes paid=false through to confirm', async () => {
-    const charge = {
-      providerId: 'p2',
-      paid: false,
-      paidAt: null,
-      receiptUrl: null,
-    };
-    const confirmArg: unknown[] = [];
+  it('webhook forwards the signature and raw body', async () => {
+    const seen: unknown[] = [];
     const service = makeService({
-      [TicketPatterns.PAYMENT_CHARGE]: (payload) => {
-        expect(payload).toEqual({ simulate: 'FAILURE' });
-        return charge;
-      },
-      [TicketPatterns.PAYMENT_CONFIRM]: (payload) => {
-        confirmArg.push(payload);
-        return { ...bookingDto, status: 'CANCELLED' };
-      },
+      Webhook: ((payload: unknown) => {
+        seen.push(payload);
+        return of({});
+      }) as TicketServiceStub['Webhook'],
     });
 
-    const result = await service.pay(userId, 'b1', {
-      paymentMethod: 'MOCK',
-      simulate: 'FAILURE',
-    });
-    expect((confirmArg[0] as { paid: boolean }).paid).toBe(false);
-    expect(result.status).toBe('CANCELLED');
+    await service.webhook('tok', '{"id":"inv_1"}');
+
+    expect(seen[0]).toEqual({ signature: 'tok', body: '{"id":"inv_1"}' });
   });
 
   it('list enriches every item and preserves pagination metadata', async () => {
     const service = makeService({
-      [TicketPatterns.BOOKING_LIST]: () => ({
-        items: [bookingDto, { ...bookingDto, id: 'b2' }],
-        meta: { page: 1, limit: 20, total: 2, totalPages: 1 },
-      }),
+      List: (() =>
+        of({
+          items: [bookingDto, { ...bookingDto, id: 'b2' }],
+          meta: { page: 1, limit: 20, total: 2, totalPages: 1 },
+        })) as TicketServiceStub['List'],
     });
 
     const result = await service.list(userId, 1, 20);
@@ -147,7 +127,7 @@ describe('BookingsService', () => {
     } as unknown as CinemaService;
     const service = makeService(
       {
-        [TicketPatterns.BOOKING_GET]: () => bookingDto,
+        Get: (() => of(bookingDto)) as TicketServiceStub['Get'],
       },
       cinema,
     );
@@ -159,13 +139,12 @@ describe('BookingsService', () => {
 
   it('rethrows RPC errors from the ticket service', async () => {
     const service = makeService({
-      [TicketPatterns.BOOKING_CANCEL]: () => {
-        throw {
+      Cancel: (() =>
+        throwError(() => ({
           statusCode: 409,
           message: 'Cannot cancel a confirmed booking',
           error: 'Conflict',
-        };
-      },
+        }))) as TicketServiceStub['Cancel'],
     });
 
     await expect(service.cancel(userId, 'b1')).rejects.toThrow(
@@ -173,5 +152,3 @@ describe('BookingsService', () => {
     );
   });
 });
-
-import { TicketPatterns } from '@ticketing/shared';

@@ -62,7 +62,7 @@ export class TheatersService {
       address: dto.address,
     });
     const saved = await this.theaters.save(theater);
-    const seats = generateSeatGrid(dto.layout, saved.id);
+    const seats = generateSeatGrid({ rows: dto.rows, cols: dto.cols }, saved.id);
     await this.seats.save(seats);
     const reloaded = await this.theaters.findOneOrFail({
       where: { id: saved.id },

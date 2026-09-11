@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CinemaClientModule } from '../cinema/cinema-client.module';
-import { MockPaymentService } from '../payments/mock-payment.service';
+import { PaymentService } from '../payments/payment.service';
+import { XenditClient } from '../payments/xendit.client';
 import { BookingSeat } from './booking-seat.entity';
 import { Booking } from './booking.entity';
 import { BookingsController } from './bookings.controller';
@@ -15,6 +16,7 @@ import { Ticket } from './ticket.entity';
     CinemaClientModule,
   ],
   controllers: [BookingsController],
-  providers: [BookingsService, MockPaymentService],
+  providers: [BookingsService, PaymentService, XenditClient],
+  exports: [PaymentService],
 })
 export class BookingsModule {}

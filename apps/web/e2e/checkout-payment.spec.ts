@@ -1,5 +1,5 @@
 import { test, expect, APIRequestContext } from './fixtures';
-import { API_BASE, USER_STATE, ADMIN_STATE } from './helpers';
+import { API_BASE, USER_STATE } from './helpers';
 
 test.use({ storageState: USER_STATE });
 
@@ -24,8 +24,8 @@ async function makeBooking(
       price: { amount: number };
     };
     const seatMap = await (await api.get(`${API_BASE}/showtimes/${showtime.id}/seats`)).json();
-    const seatIds = (seatMap.seats as { id: string; isDisabled: boolean }[])
-      .filter((s) => !s.isDisabled)
+    const seatIds = (seatMap.seats as { id: string; isDisabled: boolean; status?: string }[])
+      .filter((s) => !s.isDisabled && (s.status ?? 'AVAILABLE') === 'AVAILABLE')
       .slice(0, 2)
       .map((s) => s.id);
     if (seatIds.length !== 2) {
@@ -50,10 +50,7 @@ async function makeBooking(
 }
 
 test.describe('checkout & payment', () => {
-  test('pay success → view tickets → booking history shows confirmed', async ({
-    page,
-    userApi,
-  }) => {
+  test('pay creates a Xendit invoice and shows the redirect state', async ({ page, userApi }) => {
     const booking = await makeBooking(userApi, [2, 1, 0]);
     await page.goto(`/bookings/checkout?bookingId=${booking.bookingId}`);
 
@@ -68,39 +65,37 @@ test.describe('checkout & payment', () => {
     const totalDigits = Number((await totalValue.textContent())?.replace(/[^\d]/g, '') ?? '0');
     expect(totalDigits).toBe(booking.totalAmount);
 
-    // Success path.
-    await page.getByRole('button', { name: 'Pay now (success)' }).click();
-    await expect(page.getByText('Payment successful — booking confirmed.')).toBeVisible();
-
-    // Confirmation page with tickets.
-    await page.getByRole('button', { name: 'View tickets' }).click();
-    await expect(page).toHaveURL(/\/bookings\/confirm\/[^/]+$/);
-    await expect(page.getByText('Tickets issued')).toBeVisible();
-    await expect(page.locator('.bx-stub-code').first()).toContainText('TKT-');
-    await expect(page.getByText(booking.movieTitle).first()).toBeVisible();
-
-    // Booking history lists the confirmed booking.
-    await page.goto('/bookings');
-    await expect(page.locator('tr, div', { hasText: booking.movieTitle }).first()).toBeVisible();
-    await expect(
-      page
-        .locator('tr, div', { hasText: booking.movieTitle })
-        .first()
-        .getByText('Confirmed', { exact: true }),
-    ).toBeVisible();
+    // Xendit invoice creation (route to the hosted checkout in production;
+    // in CI without XENDIT_SECRET_KEY the API returns 502/503 — stub it).
+    await page.route('**/api/v1/bookings/*/pay', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: booking.bookingId,
+          status: 'PENDING',
+          checkoutUrl: 'https://checkout.xendit.co/inv_test',
+          invoiceId: 'inv_test',
+        }),
+      });
+    });
+    await page.getByRole('button', { name: 'Pay with Xendit' }).click();
+    await expect(page.getByText(/Redirecting to Xendit/)).toBeVisible();
   });
 
-  test('payment failure shows error and retry returns to idle', async ({ page, userApi }) => {
+  test('pay API returns checkoutUrl + invoiceId', async ({ userApi }) => {
     const booking = await makeBooking(userApi, [1, 0, 2]);
-    await page.goto(`/bookings/checkout?bookingId=${booking.bookingId}`);
-    await expect(page.locator('h1')).toHaveText(booking.movieTitle);
-
-    // Failure path.
-    await page.getByRole('button', { name: 'Simulate failure' }).click();
-    await expect(page.getByText(/Payment failed/)).toBeVisible();
-
-    // Retry returns to the idle payment buttons.
-    await page.getByRole('button', { name: 'Retry payment' }).click();
-    await expect(page.getByRole('button', { name: 'Pay now (success)' })).toBeVisible();
+    const res = await userApi.post(`${API_BASE}/bookings/${booking.bookingId}/pay`, {
+      data: {},
+    });
+    // Without live Xendit credentials this is a 502/503; with credentials it
+    // returns the hosted invoice. Either way the mock flow is gone.
+    if (res.ok()) {
+      const body = await res.json();
+      expect(typeof body.checkoutUrl).toBe('string');
+      expect(typeof body.invoiceId).toBe('string');
+    } else {
+      expect([502, 503]).toContain(res.status());
+    }
   });
 });

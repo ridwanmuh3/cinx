@@ -1,5 +1,5 @@
 export const HealthPatterns = {
-  PING: 'health.ping',
+  PING: 'Ping',
 } as const;
 
 export interface HealthResponse {

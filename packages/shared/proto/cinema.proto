@@ -1,0 +1,214 @@
+syntax = "proto3";
+
+package cinema;
+
+import "google/protobuf/empty.proto";
+
+service CinemaService {
+  rpc Ping(google.protobuf.Empty) returns (PingReply) {}
+  rpc ListMovies(ListMoviesQuery) returns (PaginatedMovies) {}
+  rpc GetMovie(IdRequest) returns (MovieDto) {}
+  rpc CreateMovie(CreateMovieRequest) returns (MovieDto) {}
+  rpc UpdateMovie(UpdateMovieRequest) returns (MovieDto) {}
+  rpc DeleteMovie(IdRequest) returns (Empty) {}
+  rpc ListTheaters(ListQuery) returns (PaginatedTheaters) {}
+  rpc GetTheater(IdRequest) returns (TheaterDto) {}
+  rpc CreateTheater(CreateTheaterRequest) returns (TheaterDto) {}
+  rpc UpdateTheater(UpdateTheaterRequest) returns (TheaterDto) {}
+  rpc DeleteTheater(IdRequest) returns (Empty) {}
+  rpc ListShowtimes(ListShowtimesQuery) returns (PaginatedShowtimes) {}
+  rpc GetShowtime(IdRequest) returns (ShowtimeDto) {}
+  rpc CreateShowtime(CreateShowtimeRequest) returns (ShowtimeDto) {}
+  rpc UpdateShowtime(UpdateShowtimeRequest) returns (ShowtimeDto) {}
+  rpc DeleteShowtime(IdRequest) returns (Empty) {}
+  rpc GetSeatMap(IdRequest) returns (ShowtimeSeatMap) {}
+}
+
+message PingReply {
+  string service = 1;
+  string status = 2;
+  string timestamp = 3;
+}
+
+message IdRequest {
+  string id = 1;
+}
+
+message Money {
+  int32 amount = 1;
+  string currency = 2;
+}
+
+message PaginationMeta {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  int32 totalPages = 4;
+}
+
+message SeatDto {
+  string id = 1;
+  string row = 2;
+  int32 number = 3;
+  string category = 4;
+  bool isAccessible = 5;
+  bool isDisabled = 6;
+}
+
+message TheaterSummary {
+  string id = 1;
+  string name = 2;
+}
+
+message MovieSummary {
+  string id = 1;
+  string title = 2;
+  string posterUrl = 3;
+  string ageRating = 4;
+  int32 durationMinutes = 5;
+}
+
+message MovieDto {
+  string id = 1;
+  string title = 2;
+  string synopsis = 3;
+  repeated string genres = 4;
+  int32 durationMinutes = 5;
+  string ageRating = 6;
+  string posterUrl = 7;
+  string releaseDate = 8;
+  string status = 9;
+  string createdAt = 10;
+  string updatedAt = 11;
+}
+
+message CreateMovieRequest {
+  string title = 1;
+  string synopsis = 2;
+  repeated string genres = 3;
+  int32 durationMinutes = 4;
+  string ageRating = 5;
+  string posterUrl = 6;
+  string releaseDate = 7;
+  string status = 8;
+}
+
+message UpdateMovieRequest {
+  string id = 1;
+  string title = 2;
+  string synopsis = 3;
+  repeated string genres = 4;
+  int32 durationMinutes = 5;
+  string ageRating = 6;
+  string posterUrl = 7;
+  string releaseDate = 8;
+  string status = 9;
+}
+
+message TheaterDto {
+  string id = 1;
+  string name = 2;
+  string address = 3;
+  repeated SeatDto seats = 4;
+  string createdAt = 5;
+  string updatedAt = 6;
+}
+
+message CreateTheaterRequest {
+  string name = 1;
+  string address = 2;
+  int32 rows = 3;
+  int32 cols = 4;
+}
+
+message UpdateTheaterRequest {
+  string id = 1;
+  string name = 2;
+  string address = 3;
+}
+
+message ShowtimeDto {
+  string id = 1;
+  MovieSummary movie = 2;
+  TheaterSummary theater = 3;
+  string startsAt = 4;
+  Money price = 5;
+  int32 availableSeats = 6;
+  string createdAt = 7;
+  string updatedAt = 8;
+}
+
+message CreateShowtimeRequest {
+  string movieId = 1;
+  string theaterId = 2;
+  string startsAt = 3;
+  Money price = 4;
+}
+
+message UpdateShowtimeRequest {
+  string id = 1;
+  string movieId = 2;
+  string theaterId = 3;
+  string startsAt = 4;
+  Money price = 5;
+}
+
+message ShowtimeSeat {
+  string id = 1;
+  string rowLabel = 2;
+  int32 number = 3;
+  string category = 4;
+  bool isAccessible = 5;
+  bool isDisabled = 6;
+}
+
+message ShowtimeSeatMap {
+  string showtimeId = 1;
+  string movieId = 2;
+  string movieTitle = 3;
+  string posterUrl = 4;
+  string ageRating = 5;
+  int32 durationMinutes = 6;
+  string theaterId = 7;
+  string theaterName = 8;
+  string startsAt = 9;
+  Money price = 10;
+  repeated ShowtimeSeat seats = 11;
+}
+
+message ListQuery {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListMoviesQuery {
+  int32 page = 1;
+  int32 limit = 2;
+  string q = 3;
+  string genre = 4;
+  bool nowPlaying = 5;
+}
+
+message ListShowtimesQuery {
+  int32 page = 1;
+  int32 limit = 2;
+  string movieId = 3;
+  string theaterId = 4;
+  string from = 5;
+  string to = 6;
+}
+
+message PaginatedMovies {
+  repeated MovieDto items = 1;
+  PaginationMeta meta = 2;
+}
+
+message PaginatedTheaters {
+  repeated TheaterDto items = 1;
+  PaginationMeta meta = 2;
+}
+
+message PaginatedShowtimes {
+  repeated ShowtimeDto items = 1;
+  PaginationMeta meta = 2;
+}
