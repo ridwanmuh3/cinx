@@ -77,6 +77,21 @@ export class BookingsController {
     return this.bookings.webhook(signature ?? '', JSON.stringify(body ?? {}));
   }
 
+  /**
+   * Server-side payment status sync: asks ticket-service to check the
+   * invoice status directly with Xendit (secret-key API call) and applies
+   * the same confirmation guards as the webhook. Used when no callback URL
+   * is registered, or to recover a missed callback.
+   */
+  @Post('bookings/:id/sync-payment')
+  @HttpCode(200)
+  syncPayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<BookingView> {
+    return this.bookings.syncPaymentStatus(user.userId, id);
+  }
+
   @Post('bookings/:id/cancel')
   @HttpCode(200)
   cancel(

@@ -18,6 +18,7 @@ import {
   PaymentChargeRequest,
   PaymentChargeResponse,
   PaymentConfirmRequest,
+  PaymentSyncRequest,
   PaymentWebhookRequest,
   ReconcileResult,
   rpcErrorPayload,
@@ -504,8 +505,12 @@ export class BookingsService {
    * Idempotent: duplicate callbacks for a CONFIRMED booking return ok.
    */
   async webhook(dto: PaymentWebhookRequest): Promise<Empty> {
-    this.payment.verifySignature(dto.signature);
-    const cb = this.payment.parseCallback(dto.body);
+    // The gateway may use any of the alias field names (proto JSON mapping);
+    // all carry the same verified callback token + raw JSON body.
+    const signature = dto.signature ?? dto.callbackToken ?? dto.callback_token ?? dto.xCallbackToken ?? '';
+    const rawBody = dto.body ?? dto.rawBody ?? dto.payload ?? '';
+    this.payment.verifySignature(signature);
+    const cb = this.payment.parseCallback(rawBody);
     const status = cb.status.toUpperCase();
 
     return withSpan(
@@ -663,6 +668,94 @@ export class BookingsService {
         await this.bookings.save(booking);
         await this.releaseLocks(booking.id);
         meters.confirms.add(1, { status: 'cancelled' });
+        return this.toBookingDto(await this.reload(booking.id));
+      },
+      { 'booking.id': booking.id },
+    );
+  }
+
+  /**
+   * Server-side payment status sync: ask Xendit directly whether the booking's
+   * invoice was paid (or expired), then apply the same state transitions and
+   * guards as the webhook. This is the webhook-less confirmation path — used
+   * when no callback URL is registered (local/dev) or when a callback was
+   * missed. The invoice status comes from Xendit's API with the secret key,
+   * so it cannot be forged by the client.
+   */
+  async syncPaymentStatus(dto: PaymentSyncRequest): Promise<BookingDto> {
+    const booking = await this.mustFindOwned(dto.bookingId, dto.userId);
+    if (booking.status !== 'PENDING') {
+      // CONFIRMED/EXPIRED/CANCELLED are terminal here — nothing to sync.
+      return this.toBookingDto(await this.reload(booking.id));
+    }
+
+    const payment = await this.payments.findOne({
+      where: { booking: { id: booking.id } },
+      order: { createdAt: 'DESC' },
+    });
+    if (!payment?.invoiceId) {
+      throw new RpcException(
+        rpcErrorPayload(409, 'No payment invoice exists for this booking'),
+      );
+    }
+
+    let invoiceStatus: string;
+    try {
+      invoiceStatus = (
+        await this.payment.getInvoiceStatus(payment.invoiceId)
+      ).toUpperCase();
+    } catch (err: unknown) {
+      // Re-throw known RPC errors (e.g. 502 provider failure) as-is.
+      if (err instanceof RpcException) throw err;
+      throw new RpcException(
+        rpcErrorPayload(502, 'Payment provider is unavailable, try again later'),
+      );
+    }
+
+    return withSpan(
+      'payment.sync',
+      async (span) => {
+        span.setAttribute('payment.invoice_status', invoiceStatus);
+        const meters = getBookingMeters();
+
+        if (
+          invoiceStatus === 'PAID' ||
+          invoiceStatus === 'SETTLED' ||
+          invoiceStatus === 'CAPTURED'
+        ) {
+          // Same liveness guard as the webhook: expired hold → no tickets.
+          await this.assertHoldLive(booking);
+          payment.status = 'PAID';
+          payment.providerTxnId = payment.invoiceId;
+          payment.paidAt = new Date();
+          payment.receiptUrl = null;
+          await this.payments.save(payment);
+
+          booking.status = 'CONFIRMED';
+          booking.confirmedAt = new Date();
+          await this.bookings.save(booking);
+          await this.ensureTickets(booking);
+          await this.releaseLocks(booking.id);
+          meters.webhooks.add(1, { status: 'paid' });
+          return this.toBookingDto(await this.reload(booking.id));
+        }
+
+        if (
+          invoiceStatus === 'EXPIRED' ||
+          invoiceStatus === 'FAILED' ||
+          invoiceStatus === 'CANCELLED'
+        ) {
+          payment.status = 'FAILED';
+          await this.payments.save(payment);
+          booking.status = 'CANCELLED';
+          await this.bookings.save(booking);
+          await this.releaseLocks(booking.id);
+          meters.webhooks.add(1, { status: 'expired' });
+          return this.toBookingDto(await this.reload(booking.id));
+        }
+
+        // Still PENDING (or any other transient status) — nothing to apply.
+        meters.webhooks.add(1, { status: 'ignored' });
         return this.toBookingDto(await this.reload(booking.id));
       },
       { 'booking.id': booking.id },

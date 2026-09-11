@@ -108,6 +108,15 @@ export class BookingsService {
     return grpcSend(this.ticket.Webhook({ signature, body }));
   }
 
+  /** Server-side Xendit status sync (webhook-less confirmation path). */
+  async syncPaymentStatus(userId: string, id: string): Promise<BookingView> {
+    // userId flows through — ticket-service enforces ownership.
+    const booking = await grpcSend<BookingDto>(
+      this.ticket.SyncPaymentStatus({ bookingId: id, userId }),
+    );
+    return this.enrich(booking);
+  }
+
   cancel(userId: string, id: string): Promise<BookingView> {
     return this.cancelInner(userId, id);
   }
