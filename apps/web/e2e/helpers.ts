@@ -1,5 +1,5 @@
 export const API_BASE = 'http://localhost:3000/api/v1';
-export const APP_ORIGIN = 'http://localhost:4200';
+export const APP_ORIGIN = 'http://localhost:5173';
 
 export const USER_EMAIL = 'e2e-user@example.com';
 export const USER_PASSWORD = 'e2euser1234';

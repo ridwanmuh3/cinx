@@ -6,7 +6,7 @@ Microservices cinema ticketing: Vue SPA + REST gateway + NestJS gRPC services, P
 
 ```mermaid
 flowchart LR
-  Web["Vue SPA :4200"] -->|HTTP| GW["gateway :3000<br/>REST + JWT"]
+  Web["Vue SPA :5173"] -->|HTTP| GW["gateway :3000<br/>REST + JWT"]
   GW -->|gRPC| US["user-service<br/>user_db"]
   GW -->|gRPC| CS["cinema-service<br/>cinema_db"]
   GW -->|gRPC| TS["ticket-service<br/>ticket_db"]
@@ -20,6 +20,7 @@ flowchart LR
 **Booking flow:** `POST /bookings/holds` locks seats (5-min redlock, `409` on contention) → `PENDING` booking. `POST /bookings/:id/pay` creates a Xendit invoice → user pays on Xendit page. Xendit webhook (or `POST /bookings/:id/sync-payment` fallback) flips it to `CONFIRMED` + issues `TKT-XXXXXX` tickets. Expired/cancelled holds release locks (`410` if paid late).
 
 Contracts: `docs/openapi.yaml` (REST) · `docs/ERD.md` (DB) · `packages/shared/proto/` (gRPC).
+System design deep-dive (CAP/PACELC, trade-offs): `docs/ARCHITECTURE.md`.
 
 ## Tech stack
 
@@ -48,7 +49,7 @@ pnpm build && pnpm dev
 
 | Surface | URL |
 |---|---|
-| Web | http://localhost:4200 |
+| Web | http://localhost:5173 |
 | REST gateway | http://localhost:3000/api/v1 |
 | Health | http://localhost:3000/api/v1/health |
 | Grafana | http://localhost:3001 |
@@ -62,7 +63,7 @@ pnpm health  # gateway health check
 
 ```bash
 cp .env.example .env
-pnpm docker:up     # build + start everything (only web :4200, gateway :3000, grafana :3001 publish ports)
+pnpm docker:up     # build + start everything (only web :5173, gateway :3000, grafana :3001 publish ports)
 pnpm docker:seed   # admin + cinema catalog
 pnpm demo
 ```

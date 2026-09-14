@@ -26,7 +26,7 @@ export function formatMedium(iso: string): string {
   return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'medium' });
 }
 
-/** IDR currency like Angular's `currency: 'IDR' : 'symbol' : '1.0-0' : 'id'`. */
+/** IDR currency, e.g. `Rp 50.000`. */
 export function formatPrice(amount: number): string {
   return 'Rp ' + amount.toLocaleString('id-ID');
 }

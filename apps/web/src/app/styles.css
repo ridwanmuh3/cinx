@@ -1058,7 +1058,7 @@
   }
 }
 
-/* ---------- Vue Router active states (replaces Angular routerLinkActive) ---------- */
+/* ---------- Vue Router active states ---------- */
 
 .bx-bar-link.router-link-active,
 .bx-tab.router-link-active {

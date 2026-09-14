@@ -23,7 +23,7 @@ Concurrency-safe seat booking: a seat can be held by exactly one person at a tim
 
 ## Operating Context
 
-- Web SPA served at `:4200`, proxying `/api` to a stateless REST gateway (`:3000`).
+- Web SPA served at `:5173`, proxying `/api` to a stateless REST gateway (`:3000`).
 - Full stack runs via Docker Compose (PostgreSQL 18.4 + Redis 8.10 + gateway + three TCP microservices).
 - Payment is a **mock provider**. Checkout exposes "Pay now (success)" and "Simulate failure" affordances; payment retry and hold-expiry states are part of the real flow.
 - Seat holds expire after 5 minutes; `PENDING` bookings auto-expire. Payment must complete before expiry.
@@ -44,7 +44,7 @@ Concurrency-safe seat booking: a seat can be held by exactly one person at a tim
 
 - Mock payment only; no real payment provider.
 - Hold TTL is 5 minutes; unpaid holds expire and release seats.
-- Angular 22 standalone SPA with Tailwind CSS 4; lazy-loaded feature routes; signals-based state.
+- Vue 3 SPA with Tailwind CSS 4; lazy-loaded feature routes; Pinia + Composition API state.
 - Accessibility gate: WCAG AA and clean AXE checks (per `apps/web/AGENTS.md`).
 - **Brand name:** CinX (confirmed by the user). Not yet applied in the app: `index.html` title is still "Web" and the shell nav uses the working label "Cinema" — future work should adopt "CinX" as the product name.
 
