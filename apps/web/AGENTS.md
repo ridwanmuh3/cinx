@@ -18,7 +18,7 @@ You are an expert in TypeScript, Vue 3, and scalable web application development
 
 ## State Management
 
-- Use Pinia stores for shared/cross-component state (`src/stores/`)
+- Use Pinia stores for shared/cross-component state
 - Pinia setup-style stores (`defineStore('x', () => {...})`) are preferred
 - Do not mutate store state outside actions
 
@@ -34,9 +34,32 @@ You are an expert in TypeScript, Vue 3, and scalable web application development
 
 ## Data & API
 
-- All HTTP calls go through `src/api.ts` (fetch-based client that injects the Bearer
+- All HTTP calls go through `src/shared/api` (fetch-based client that injects the Bearer
   token from the auth store and normalises errors into `ApiError`)
-- Do not call `fetch` directly from views
+- Do not call `fetch` directly from pages or components
+
+## Architecture (feature-sliced)
+
+Layered structure — higher layers may import lower layers, never the reverse:
+
+```
+src/
+├── app/           # app wiring: main.ts, router, App.vue, shell, global styles
+├── pages/         # route screens by feature: auth/, booking/, movies/, admin/, landing/
+│   └── <feature>/ui/   # page components (lazy-loaded via the router)
+├── features/      # user-flows logic: booking (countdown composable, status mappers)
+├── entities/      # cross-page domain state: user (auth store), theme
+└── shared/        # framework-agnostic building blocks
+    ├── api/       # fetch client (client.ts) + DTO types (types.ts)
+    ├── lib/       # formatters, telemetry
+    └── ui/        # reusable widgets (ThemeToggle), Naive UI theme overrides
+```
+
+- Pages communicate via the router (URL is the source of truth); page state stays
+  local to the page
+- Cross-page state lives in `entities/`; pure reusable logic in `features/`
+- Import via slice barrels (`@/entities/user`, `@/features/booking`) — not deep
+  module paths — and never reach upward (`entities` must not import `app`)
 
 ## Accessibility Requirements
 

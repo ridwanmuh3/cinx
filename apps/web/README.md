@@ -49,12 +49,20 @@ server before running the specs in `e2e/`.
 
 ## Project layout
 
-- `src/api.ts` — fetch-based API client with Bearer token injection and error normalisation
-- `src/stores/` — Pinia stores (`auth`, `theme`)
-- `src/router.ts` — lazy-loaded routes with auth/admin guards
-- `src/views/` — route components (landing, auth, movies, bookings, admin)
-- `src/components/` — app shell and shared widgets
-- `src/ui/theme.ts` — Naive UI theme overrides matching the CinX design tokens
+Feature-sliced layers — `app` → `pages` → `features` → `entities` → `shared`:
+
+- `src/app/` — app wiring: entry (`main.ts`), router with auth/admin guards, `App.vue`,
+  `AppShell`, global styles
+- `src/pages/` — route screens by feature (`auth/`, `movies/`, `booking/`, `admin/`,
+  `landing/`), each lazily loaded
+- `src/features/` — reusable user-flow logic (`booking`: hold-countdown composable,
+  booking-status mappers)
+- `src/entities/` — cross-page domain state (`user`: auth store, `theme`)
+- `src/shared/api/` — fetch client with Bearer token injection and error normalisation
+- `src/shared/lib/` — formatters, browser telemetry
+- `src/shared/ui/` — reusable widgets (ThemeToggle) and the Naive UI theme overrides
+
+See `AGENTS.md` for the full architecture conventions.
 
 ## Additional Resources
 
