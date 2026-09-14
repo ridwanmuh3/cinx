@@ -32,6 +32,59 @@ describe('PaymentService (Xendit)', () => {
     ).toBeLessThanOrEqual(2 * 24 * 3600);
   });
 
+  describe('successRedirectUrl / failureRedirectUrl', () => {
+    it('re-anchors a caller-supplied absolute returnUrl to the configured app origin', () => {
+      const result = service.successRedirectUrl(
+        'b1',
+        'http://localhost:4200/bookings/confirm/b1',
+      );
+      expect(result).toBe('http://localhost:4200/bookings/confirm/b1');
+    });
+
+    it('keeps query strings when sanitizing an absolute returnUrl', () => {
+      const result = service.successRedirectUrl(
+        'b1',
+        'https://evil.example/bookings/confirm/b1?src=x&utm=1',
+      );
+      expect(result).toBe('http://localhost:4200/bookings/confirm/b1?src=x&utm=1');
+    });
+
+    it('rejects protocol-relative host injection', () => {
+      const result = service.successRedirectUrl('b1', '//evil.example/bookings/confirm/b1');
+      expect(result).toBe('http://localhost:4200/bookings/confirm/b1');
+      expect(result).not.toContain('evil.example');
+    });
+
+    it('falls back to the confirm path when returnUrl is empty', () => {
+      expect(service.successRedirectUrl('b1', '')).toBe(
+        'http://localhost:4200/bookings/confirm/b1',
+      );
+      expect(service.successRedirectUrl('b1')).toBe(
+        'http://localhost:4200/bookings/confirm/b1',
+      );
+    });
+
+    it('prefers XENDIT_RETURN_URL over EMAIL_BASE_URL as the redirect origin', () => {
+      process.env.XENDIT_RETURN_URL = 'https://cinx.example.com';
+      jest.resetModules();
+      const {
+        PaymentService: FreshService,
+      } = require('./payment.service') as typeof import('./payment.service');
+      const fresh = new FreshService(client);
+      try {
+        expect(fresh.successRedirectUrl('b2')).toBe(
+          'https://cinx.example.com/bookings/confirm/b2',
+        );
+        expect(fresh.failureRedirectUrl('b2')).toBe(
+          'https://cinx.example.com/bookings/checkout?bookingId=b2',
+        );
+      } finally {
+        delete process.env.XENDIT_RETURN_URL;
+        jest.resetModules();
+      }
+    });
+  });
+
   it('creates an invoice through the Xendit client', async () => {
     const spy = jest.spyOn(client, 'createInvoice').mockResolvedValue({
       id: 'inv_1',
