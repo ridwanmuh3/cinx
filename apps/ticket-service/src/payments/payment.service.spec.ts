@@ -36,9 +36,9 @@ describe('PaymentService (Xendit)', () => {
     it('re-anchors a caller-supplied absolute returnUrl to the configured app origin', () => {
       const result = service.successRedirectUrl(
         'b1',
-        'http://localhost:4200/bookings/confirm/b1',
+        'http://localhost:5173/bookings/confirm/b1',
       );
-      expect(result).toBe('http://localhost:4200/bookings/confirm/b1');
+      expect(result).toBe('http://localhost:5173/bookings/confirm/b1');
     });
 
     it('keeps query strings when sanitizing an absolute returnUrl', () => {
@@ -46,21 +46,21 @@ describe('PaymentService (Xendit)', () => {
         'b1',
         'https://evil.example/bookings/confirm/b1?src=x&utm=1',
       );
-      expect(result).toBe('http://localhost:4200/bookings/confirm/b1?src=x&utm=1');
+      expect(result).toBe('http://localhost:5173/bookings/confirm/b1?src=x&utm=1');
     });
 
     it('rejects protocol-relative host injection', () => {
       const result = service.successRedirectUrl('b1', '//evil.example/bookings/confirm/b1');
-      expect(result).toBe('http://localhost:4200/bookings/confirm/b1');
+      expect(result).toBe('http://localhost:5173/bookings/confirm/b1');
       expect(result).not.toContain('evil.example');
     });
 
     it('falls back to the confirm path when returnUrl is empty', () => {
       expect(service.successRedirectUrl('b1', '')).toBe(
-        'http://localhost:4200/bookings/confirm/b1',
+        'http://localhost:5173/bookings/confirm/b1',
       );
       expect(service.successRedirectUrl('b1')).toBe(
-        'http://localhost:4200/bookings/confirm/b1',
+        'http://localhost:5173/bookings/confirm/b1',
       );
     });
 

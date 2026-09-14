@@ -12,7 +12,7 @@ To start a local development server, run:
 pnpm dev
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`.
+Once the server is running, open your browser and navigate to `http://localhost:5173/`.
 The application will automatically reload whenever you modify any of the source files.
 During local dev, `/api` is proxied to the REST gateway at `http://localhost:3000`
 (see `vite.config.ts`).

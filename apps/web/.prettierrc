@@ -3,9 +3,9 @@
   "singleQuote": true,
   "overrides": [
     {
-      "files": "*.html",
+      "files": "*.vue",
       "options": {
-        "parser": "angular"
+        "parser": "vue"
       }
     }
   ]

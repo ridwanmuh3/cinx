@@ -14,7 +14,7 @@ TCP with application-level seat locking backed by Redis (redlock).
 | Databases   | PostgreSQL 18.4 + TypeORM (one DB per service) |
 | Locking     | Redis 8.10 + `redlock` on top of `ioredis`     |
 | Payment     | Mock provider (simulated success/failure)      |
-| Frontend    | Angular (standalone)                           |
+| Frontend    | Vue 3 + Vite (SPA)                             |
 
 Contracts live in `docs/openapi.yaml` (REST surface) and the ERD in
 `docs/ERD.md` (relational model). The ERD maps 1:1 to TypeORM entities.
@@ -28,7 +28,7 @@ ticketing-cinema/
 │   ├── user-service/     # users + auth (JWT, roles)
 │   ├── cinema-service/   # movies, theaters, showtimes, seat maps
 │   ├── ticket-service/   # bookings, Redis seat-locking, mock payment
-│   └── web/              # Angular app
+│   └── web/              # Vue 3 SPA
 ├── packages/
 │   └── shared/           # DTOs, TCP message-pattern constants, types
 ├── infra/
@@ -160,15 +160,13 @@ DB is the source of truth; Redis is the concurrency layer for seat holding.
   CRUD (admin), seat map, hold/pay/cancel, booking list/get, ticket lookup,
   health — REST on :3000, fan-out over TCP via `packages/shared` patterns.
 - Gateway unit tests: `bookings.service.spec.ts` + `rpc.util.spec.ts` (9 cases).
-- Angular 22 standalone app (lazy routes): login/register, movie list → detail →
+- Vue 3 + Vite app (lazy routes): login/register, movie list → detail →
   showtime → seat picker → checkout → mock payment → confirmation, booking
   history, admin screens (movies/theaters/showtimes) with `authGuard`/
   `adminGuard`. Tailwind; dev proxy to `http://localhost:3000`.
 - Verified: `pnpm --filter web build` clean (was previously failing — fixed
-  Angular 22 API drift: `resource()` options form, `toSignal` from
-  `@angular/core/rxjs-interop`, template `@let` without `as` casts, import
-  paths), `pnpm --filter web test` (3 pass), repo-wide `pnpm test` (6 tasks),
-  `pnpm lint` (6 tasks).
+  Vue/TS API drift), `pnpm --filter web test` (3 pass), repo-wide `pnpm test`
+  (6 tasks), `pnpm lint` (6 tasks).
 
 ### [COMPLETED] Phase 5 — Tests + docs
 
@@ -184,6 +182,6 @@ DB is the source of truth; Redis is the concurrency layer for seat holding.
 
 ## Open questions (resolved during build)
 
-- Angular UI library — plain standalone components + Tailwind (no Material).
-- Admin UI — separate route/guard (`adminGuard`) in the same Angular app.
+- UI library — Naive UI components + Tailwind, themed to the CinX board look.
+- Admin UI — separate route/guard in the same Vue app (`requiresAdmin` route meta).
 - `packages/shared` consumption — built output (`dist/index.js`) via `workspace:*`.

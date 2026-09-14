@@ -28,7 +28,7 @@ export const RESEND_FROM =
   process.env.RESEND_FROM ?? 'CinX <no-reply@example.com>';
 export const RESEND_API_KEY = process.env.RESEND_API_KEY ?? '';
 export const EMAIL_BASE_URL =
-  process.env.EMAIL_BASE_URL ?? 'http://localhost:4200';
+  process.env.EMAIL_BASE_URL ?? 'http://localhost:5173';
 
 /** RabbitMQ topology (notification-service transport + event fan-out). */
 export const RMQ = {

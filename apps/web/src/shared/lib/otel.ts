@@ -1,4 +1,3 @@
-import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { DocumentLoadInstrumentation } from '@opentelemetry/instrumentation-document-load';
 import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
@@ -8,6 +7,7 @@ import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import {
   BatchSpanProcessor,
   ParentBasedSampler,
+  StackContextManager,
   TraceIdRatioBasedSampler,
   WebTracerProvider,
 } from '@opentelemetry/sdk-trace-web';
@@ -28,6 +28,9 @@ let started = false;
  *
  * Never throws: telemetry must not break the app when the endpoint is
  * missing or the browser blocks the beacon.
+ *
+ * Uses the SDK's StackContextManager — no zone.js. Vue tracks reactivity
+ * itself, so async context only needs to span the synchronous fetch wrapper.
  */
 export function initBrowserTelemetry(): void {
   if (started) return;
@@ -57,7 +60,7 @@ export function initBrowserTelemetry(): void {
         new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` })),
       ],
     });
-    provider.register({ contextManager: new ZoneContextManager() });
+    provider.register({ contextManager: new StackContextManager() });
 
     registerInstrumentations({
       instrumentations: [

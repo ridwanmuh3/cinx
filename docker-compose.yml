@@ -21,7 +21,7 @@ services:
     image: ghcr.io/ridwanmuh3/ticketing-cinema/web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - '${WEB_PORT:-4200}:80'
+      - '${WEB_PORT:-5173}:80'
     networks: [public]
     depends_on:
       gateway:

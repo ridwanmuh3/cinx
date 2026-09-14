@@ -12,9 +12,9 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 4200,
+    port: 5173,
     proxy: {
-      // API proxied to the REST gateway during local dev (mirrors proxy.conf.json).
+      // API proxied to the REST gateway during local dev.
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,

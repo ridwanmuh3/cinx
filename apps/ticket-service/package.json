@@ -30,6 +30,7 @@
       "/node_modules/",
       "integration-spec"
     ],
+    "setupFiles": ["<rootDir>/test-env.ts"],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },

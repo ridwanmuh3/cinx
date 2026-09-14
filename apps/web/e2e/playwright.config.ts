@@ -14,7 +14,7 @@ export default defineConfig({
   reporter: [['list']],
   globalSetup: join(__dirname, 'global-setup.ts'),
   use: {
-    baseURL: 'http://localhost:4200',
+    baseURL: 'http://localhost:5173',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -30,8 +30,8 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'pnpm exec vite --port 4200 --host 0.0.0.0',
-      url: 'http://localhost:4200',
+      command: 'pnpm exec vite --port 5173 --host 0.0.0.0',
+      url: 'http://localhost:5173',
       timeout: 180_000,
       reuseExistingServer: !process.env.CI,
       cwd: WEB_DIR,
