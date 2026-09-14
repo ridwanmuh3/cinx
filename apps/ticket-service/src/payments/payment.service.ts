@@ -13,6 +13,8 @@ import { XenditClient } from './xendit.client';
 const MIN_INVOICE_DURATION_S = 300;
 const MAX_INVOICE_DURATION_S = 2 * 24 * 3600;
 
+const INTERNAL_ORIGIN = 'https://internal.invalid';
+
 /**
  * Xendit payment provider (Invoices API).
  *
@@ -30,16 +32,16 @@ const MAX_INVOICE_DURATION_S = 2 * 24 * 3600;
 @Injectable()
 export class PaymentService {
   /**
-   * Post-payment browser redirect. Only the path portion of a caller-supplied
-   * return URL is honored (query string included) — the origin always comes
-   * from server config — so the payment flow can never be used to bounce
-   * users to an off-site URL (open redirect / phishing).
+   * Post-payment browser redirect base. Only the path portion of a
+   * caller-supplied return URL is honored (query string included) — the
+   * origin always comes from server config — so the payment flow can never
+   * be used to bounce users to an off-site URL (open redirect / phishing).
    */
   static sameOriginPath(raw: string): string {
     let candidate = raw.trim();
     try {
-      const url = new URL(candidate, 'https://internal.invalid');
-      if (url.origin !== 'https://internal.invalid') {
+      const url = new URL(candidate, INTERNAL_ORIGIN);
+      if (url.origin !== INTERNAL_ORIGIN) {
         candidate = url.pathname + url.search + url.hash;
       }
       if (!candidate.startsWith('/') || candidate.startsWith('//')) return '';
@@ -63,18 +65,29 @@ export class PaymentService {
     );
   }
 
+  /**
+   * The app origin Xendit must redirect back to. `XENDIT_RETURN_URL` is the
+   * public HTTPS entry point (e.g. a tunnel in local dev); the SPA origin
+   * (`EMAIL_BASE_URL`) is the fallback.
+   */
+  private appOrigin(): string {
+    return (XENDIT_RETURN_URL || EMAIL_BASE_URL).replace(/\/$/, '');
+  }
+
+  /**
+   * Builds an absolute post-payment redirect for Xendit. Xendit treats a
+   * path-only value as relative to its own checkout domain, which lands the
+   * user on a 404 — so a sanitized caller path is always re-anchored to our
+   * configured origin.
+   */
   successRedirectUrl(bookingId: string, returnUrl?: string): string {
     const safe = returnUrl ? PaymentService.sameOriginPath(returnUrl) : '';
-    if (safe) return safe;
-    if (XENDIT_RETURN_URL)
-      return `${XENDIT_RETURN_URL.replace(/\/$/, '')}/bookings/confirm/${bookingId}`;
-    return `${EMAIL_BASE_URL.replace(/\/$/, '')}/bookings/confirm/${bookingId}`;
+    const path = safe || `/bookings/confirm/${bookingId}`;
+    return `${this.appOrigin()}${path}`;
   }
 
   failureRedirectUrl(bookingId: string): string {
-    if (XENDIT_RETURN_URL)
-      return `${XENDIT_RETURN_URL.replace(/\/$/, '')}/bookings/checkout?bookingId=${bookingId}`;
-    return `${EMAIL_BASE_URL.replace(/\/$/, '')}/bookings/checkout?bookingId=${bookingId}`;
+    return `${this.appOrigin()}/bookings/checkout?bookingId=${bookingId}`;
   }
 
   async createInvoiceForBooking(args: {
