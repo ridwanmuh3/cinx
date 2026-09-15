@@ -224,3 +224,96 @@ adalah jalur cepatnya. Kalau webhook hilang (partisi Xendit→Anda), sistem
 > memastikan keputusan CP-nya tidak bergantung pada keamanan lock semata —
 > melainkan dijamin oleh constraint database, karena partisi jaringan bukan
 > "jika" melainkan "kapan".**
+
+---
+
+## 9. Glosarium
+
+Istilah teknis yang dipakai di dokumen ini, dikelompokkan per tema, dengan
+padanannya di kode CinX.
+
+### Pola arsitektur
+
+| Istilah | Arti | Di CinX |
+| --- | --- | --- |
+| **SPA** (Single Page Application) | Aplikasi web yang dimuat sekali di browser lalu diperbarui lewat panggilan API, bukan reload halaman penuh | Aplikasi Vue 3 di `:5173` |
+| **API Gateway** | Satu pintu depan yang menerima semua request klien lalu meneruskannya ke service internal | `apps/gateway` di `:3000` |
+| **BFF** (Backend-for-Frontend) | Gateway yang didesain khusus untuk satu frontend — membentuk data backend persis sesuai kebutuhan UI | Gateway menggabungkan balasan gRPC menjadi satu respons REST/JSON |
+| **Microservices** | Memecah aplikasi menjadi service kecil yang independen, masing-masing memiliki satu domain | user-service, cinema-service, ticket-service |
+| **Monolith** | Kebalikannya: satu aplikasi berisi semuanya | — |
+| **Database-per-service** | Setiap service punya database privat sendiri; service lain tidak pernah query langsung | `user_db`, `cinema_db`, `ticket_db` |
+| **Data ownership** | Hanya satu service yang boleh menulis datanya; yang lain harus meminta lewat API-nya | Hanya cinema-service yang boleh mengubah data kursi/teater |
+| **Saga** | Alur kerja multi-langkah lintas service; tiap langkah commit lokal, kegagalan dibatalkan dengan langkah kompensasi (bukan satu transaksi besar) | hold → pay → confirm/expire melintasi 2 database |
+| **Orchestration** (vs **choreography**) | Gaya saga dengan satu koordinator yang mengarahkan semua langkah (seperti konduktor orkestra); choreography = service saling bereaksi lewat event tanpa konduktor | ticket-service adalah konduktornya; email via RabbitMQ bersifat choreography |
+| **Distributed lock** | Cara memastikan "hanya satu pihak boleh menyentuh resource ini saat ini" lintas mesin | Lock Redis per kursi |
+| **Stateless** | Server tidak menyimpan memori antar-request; setiap request membawa semua yang dibutuhkan | Gateway/service bisa di-restart bebas; token ikut di tiap request |
+
+### Komunikasi & data
+
+| Istilah | Arti | Di CinX |
+| --- | --- | --- |
+| **REST** | API berbasis URL + metode HTTP, umumnya JSON | `GET /api/v1/movies` |
+| **gRPC** | Protokol biner cepat untuk komunikasi antar-service, kontraknya didefinisikan di file `.proto`; browser tidak bisa memakainya langsung (alasan gateway wajib ada) | gateway → ticket-service |
+| **Stub** | Kode klien hasil generate untuk memanggil service gRPC, dengan typing | `TicketServiceStub` |
+| **Webhook** | "Saat X terjadi, panggil URL saya" — notifikasi push dari satu sistem ke sistem lain | Xendit memanggil gateway saat pembayaran sukses |
+| **Fanout** | Satu pesan dikirim ke semua subscriber sebuah exchange | RabbitMQ menyiarkan event booking ke notification-service |
+| **CORS** | Aturan keamanan browser untuk halaman yang memanggil origin berbeda; panggilan same-origin bebas CORS | Vite mem-proxy `/api` → `:3000`, jadi tidak perlu konfigurasi CORS |
+| **FK** (Foreign Key) | Kolom DB yang menegaskan "baris ini harus merujuk baris nyata di tabel lain" | Sengaja **tidak ada** lintas DB — diganti validasi gRPC + snapshot |
+| **Join** | Menggabungkan tabel dalam satu query SQL; mustahil lintas database terpisah | Baris booking membawa snapshot, bukan join |
+| **Snapshot** | Salinan data pada satu titik waktu agar riwayat tetap akurat walau sumbernya berubah | `BookingSeat` menyimpan info kursi saat hold |
+| **Idempotent** | Request yang sama diterima dua kali tidak menimbulkan efek ganda | Webhook Xendit yang dikirim ulang tidak membuat tiket dobel |
+
+### Locking, concurrency & kebenaran
+
+| Istilah | Arti | Di CinX |
+| --- | --- | --- |
+| **Redis** | Data store in-memory yang sangat cepat; lazim untuk cache, counter, dan lock | Menyimpan lock kursi |
+| **Redlock** | Algoritma lock Redis yang aman lintas beberapa node: lock sah hanya jika didapat di **mayoritas** node (**quorum**) | `seat:{showtimeId}:{seatId}` |
+| **TTL** (Time-To-Live) | Waktu kedaluwarsa otomatis pada data | Lock/hold mati sendiri setelah 5 menit |
+| **Fencing token** | Bukti yang harus ditunjukkan di gerbang akhir, agar pemegang lock basi tidak bisa merusak ("buktikan di DB, atau tidak masuk") | Constraint `UNIQUE (showtime_id, seat_id)` menolak INSERT kedua |
+| **Double-booking** | Kursi yang sama terjual ke dua orang — invariant yang dijaga seluruh desain | dicegah lock (lapis 1) + UNIQUE constraint (lapis 2) |
+| **Fail-closed** | Saat komponen keamanan rusak, sistem menolak request daripada berisiko melewatkan yang salah | Redis mati → 503 "Seat lock unavailable", bukan 409 palsu |
+| **Source of truth** | Lokasi data yang berwenang saat ada perbedaan | Postgres, bukan Redis — Redis hanya optimisasi |
+| **Cron / reconcile** | Timer berkala yang memeriksa ulang dan memperbaiki state | Tiap menit, booking PENDING yang lewat 5 menit di-flip ke EXPIRED |
+| **Hot path** | Jalur kode yang paling sering dieksekusi dan wajib cepat | Alur hold normal (1 Redis + 1 gRPC + 1 INSERT) |
+| **GC pause** | Jeda garbage collection; program bisa berhenti beberapa detik di tengah pekerjaan — cara klasik lock "hilang" (kritik Kleppmann atas Redlock) | Alasan ada lapis ke-2 |
+
+### Teori konsistensi (CAP & kawan-kawan)
+
+| Istilah | Arti | Di CinX |
+| --- | --- | --- |
+| **CAP theorem** | Saat jaringan terbelah (**P**artition — pasti terjadi cepat atau lambat), sistem harus memilih: menolak sebagian request demi kebenaran (**C**onsistency) atau terus menjawab dengan data yang mungkin basi (**A**vailability) | Analisis utama dokumen ini |
+| **CP** | Memilih kebenaran: request yang konflik ditolak | Hold kursi → 409 |
+| **AP** | Memilih ketersediaan: selalu menjawab walau data mungkin sedikit stale | Katalog film, email, tracing |
+| **PACELC** | Perluasan CAP: tanpa partisi pun (**Else**) tetap ada trade-off antara **L**atency dan **C**onsistency | CinX memilih latensi rendah di jalur normal, membayar konsistensi hanya saat konflik |
+| **Stale data** | Data yang basi/sebentar tua, bukan salah | Daftar film yang telat beberapa detik |
+| **Linearizable** | Jaminan terkuat: operasi pada satu resource terlihat terjadi satu per satu, sesuai urutan waktu nyata | Kursi yang sedang di-lock |
+| **ACID** | Jaminan transaksi klasik satu database: Atomic, Consistent, Isolated, Durable | Transaksi PostgreSQL di tiap service |
+| **Read-your-writes** | Setelah menulis, bacaan berikutnya pasti melihat tulisan itu | Sesi/token diverifikasi sebelum route guarded dimuat |
+| **Eventual consistency** | Pembaruan menyebar seiring waktu; salinan akan menyatu jika ditunggu | Tiket muncul sesaat setelah pembayaran |
+| **Anti-entropy** | Mekanisme latar yang memperbaiki ketidaksesuaian saat jalur cepat kehilangan data | Polling `sync-payment` saat webhook hilang |
+| **Causal consistency** | Efek selalu muncul setelah penyebabnya | Trace klik terhubung ke trace backend |
+| **Consensus (Raft / Paxos / ZooKeeper)** | Algoritma berat yang membuat kluster sepakat sebagai satu — kuat tapi lambat; sengaja tidak dipakai di hot path | — |
+| **Kleppmann vs antirez** | Debat terkenal 2016: Martin Kleppmann berargumen Redlock tidak 100% aman (bergantung waktu); pencipta Redis antirez menolak. Tidak ada pemenang mutlak — karenanya dipakai defense in depth | Bagian "kenapa Redlock" di §4 |
+
+### Operasional, auth & observability
+
+| Istilah | Arti | Di CinX |
+| --- | --- | --- |
+| **JWT (Bearer token)** | Token bertanda tangan yang dikirim klien di header `Authorization` untuk membuktikan identitas; server tidak perlu penyimpanan sesi | `Authorization: Bearer …` |
+| **Sticky session** | Trik load balancer yang memaksa user kembali ke server yang sama (hanya perlu untuk server *stateful*); desain stateless menghapus kebutuhan ini | Tidak dipakai |
+| **Horizontal scaling** | Menambah replika service di belakang load balancer | Replika gateway |
+| **HA** (High Availability) | Rekayasa komponen agar bertahan hidup saat gagal (replika, failover) | "HA Postgres, Redis Sentinel/Cluster" di produksi |
+| **Redis Sentinel/Cluster** | Setup Redis yang bertahan saat satu node mati (monitor/failover, atau shard + replikasi) | — |
+| **Graceful degradation** | Saat dependensi mati, tampilkan konten terbatas alih-alih crash | `FALLBACK_ROWS` + badge "DEMO BOARD" di landing page |
+| **Timeout & retry** | Membatasi lama menunggu service lain, lalu mencoba ulang dengan aman | `grpcSend` di shared |
+| **OTel (OpenTelemetry)** | Standar instrumentasi untuk memancarkan trace/metrics dari kode | Semua service ter-instrumentasi |
+| **OTLP** | Protokol yang dipakai OTel untuk mengirim data telemetry | → otel-collector |
+| **Trace / traceparent** | Perjalanan satu request lintas service, dijahit oleh ID yang di-propagasi dari ujung ke ujung | Klik → gateway → ticket-service dalam satu tampilan |
+| **Sampling (20%)** | Hanya merekam sebagian trace agar observability tidak memperlambat aplikasi | `VITE_OTEL_SAMPLE_RATIO=0.2` |
+| **Tempo / Prometheus / Grafana** | Penyimpanan trace / penyimpanan metrics / dashboard di atas keduanya | Stack observability di compose |
+| **409 / 410 / 503** | Kode HTTP: 409 = conflict ("sudah diambil orang"), 410 = gone (hold kedaluwarsa), 503 = service unavailable ("jujur belum bisa memutuskan") | Dipakai apa adanya sesuai kondisi |
+
+Model mental satu kalimat untuk seluruh dokumen: **lock cepat dulu (Redis),
+jaminan keras terakhir (UNIQUE di Postgres), error yang jujur selalu
+(409 vs 503), dan data stale boleh di mana pun kecuali kursi dan uang.**
