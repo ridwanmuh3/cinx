@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NButton } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatDateTime, formatPrice } from '@/shared/lib/format';
+import { describeApiError } from '@/shared/lib/api-errors';
 import { useCountdown } from '@/features/booking';
 import type { Booking } from '@/shared/api/types';
 
@@ -38,13 +39,18 @@ async function load(): Promise<void> {
   try {
     booking.value = await api.getBooking(bookingId.value);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load this booking.';
+    error.value = describeApiError(err, 'Could not load this booking.');
   } finally {
     loading.value = false;
   }
 }
 
 const isPending = computed(() => booking.value?.status === 'PENDING');
+
+/** EXPIRED → "expired" — for the terminal-state sentence. */
+function statusWord(status: string): string {
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
 
 async function pay(): Promise<void> {
   const id = bookingId.value;
@@ -54,22 +60,32 @@ async function pay(): Promise<void> {
   try {
     const returnUrl = `${window.location.origin}/bookings/confirm/${id}`;
     const res = await api.pay(id, returnUrl);
-    booking.value = res;
-    if (res.checkoutUrl) {
+    if (res.status === 'CONFIRMED') {
+      // Payment settled inline — the response carries the full booking.
+      booking.value = res;
+    } else if (res.checkoutUrl) {
+      // Keep the loaded booking (the pay response is a partial payload);
+      // let the "Redirecting…" state paint before leaving the SPA — the
+      // user should never be dropped on a host page with no explanation.
       checkoutUrl.value = res.checkoutUrl;
-      window.location.href = res.checkoutUrl;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      window.location.assign(res.checkoutUrl);
     } else {
-      error.value = 'No checkout URL returned. Please try again.';
+      error.value = 'The payment page did not open. Please try again.';
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Payment failed';
+    if (err instanceof api.ApiError && err.statusCode === 401) {
+      await router.push({ path: '/login', query: { redirect: route.fullPath } });
+      return;
+    }
+    error.value = describeApiError(err, 'Payment could not be started. Please try again.');
   } finally {
     paying.value = false;
   }
 }
 
 function goConfirm(id: string): void {
-  router.push(`/bookings/confirm/${id}`);
+  void router.push(`/bookings/confirm/${id}`);
 }
 </script>
 
@@ -122,31 +138,42 @@ function goConfirm(id: string): void {
         </div>
 
         <template v-if="booking.status === 'CONFIRMED'">
-          <p role="status" class="bx-ok mt-5">Payment successful — booking confirmed.</p>
+          <div role="status" class="bx-alert bx-alert--success mt-5">
+            <span class="bx-alert-icon" aria-hidden="true">✓</span>
+            <span>Payment successful — your booking is confirmed.</span>
+          </div>
           <n-button type="primary" class="mt-4" @click="goConfirm(booking.id)"
             >View tickets</n-button
           >
         </template>
 
         <template v-else-if="!isPending">
-          <p role="alert" class="bx-err mt-5">
-            This booking is {{ booking.status }} and can no longer be paid. Pick your seats again.
-          </p>
+          <div role="alert" class="bx-alert bx-alert--error mt-5">
+            <span class="bx-alert-icon" aria-hidden="true">!</span>
+            <span>
+              This booking ({{ statusWord(booking.status) }}) can no longer be paid — the seats have
+              been released. Pick your seats again.
+            </span>
+          </div>
           <router-link to="/movies" class="bx-btn bx-btn--ghost mt-4">Back to cinema</router-link>
         </template>
 
         <template v-else-if="expired">
-          <p role="alert" class="bx-err mt-5">
-            Your hold expired and the seats were released. Pick your seats again.
-          </p>
+          <div role="alert" class="bx-alert bx-alert--error mt-5">
+            <span class="bx-alert-icon" aria-hidden="true">!</span>
+            <span>Your hold expired and the seats were released. Pick your seats again.</span>
+          </div>
           <router-link to="/movies" class="bx-btn bx-btn--ghost mt-4">Back to cinema</router-link>
         </template>
 
         <template v-else-if="checkoutUrl">
-          <p role="status" class="bx-ok mt-5">
-            Redirecting to Xendit secure checkout… If you are not redirected,
-            <a :href="checkoutUrl" class="underline">continue to payment</a>.
-          </p>
+          <div role="status" class="bx-alert bx-alert--success mt-5">
+            <span class="bx-alert-icon" aria-hidden="true">✓</span>
+            <span>
+              Redirecting to Xendit secure checkout… If nothing happens,
+              <a :href="checkoutUrl" class="underline">continue to payment</a>.
+            </span>
+          </div>
           <n-button type="primary" class="mt-4" @click="goConfirm(booking.id)"
             >Check booking status</n-button
           >
@@ -155,16 +182,19 @@ function goConfirm(id: string): void {
         <template v-else>
           <p class="bx-dim mt-5">
             You will be redirected to Xendit to complete payment. Your seats stay held until the
-            timer ends.
+            timer ends — if it runs out, your seats are released and you can pick again.
           </p>
           <div class="mt-5 flex flex-wrap gap-3">
             <n-button type="primary" :loading="paying" @click="pay()">
-              {{ paying ? 'Creating invoice…' : 'Pay with Xendit' }}
+              {{ paying ? 'Opening payment…' : 'Pay with Xendit' }}
             </n-button>
           </div>
         </template>
 
-        <p v-if="error" role="alert" class="bx-err mt-4">{{ error }}</p>
+        <div v-if="error" role="alert" class="bx-alert bx-alert--error mt-4">
+          <span class="bx-alert-icon" aria-hidden="true">!</span>
+          <span>{{ error }}</span>
+        </div>
       </div>
     </div>
   </template>

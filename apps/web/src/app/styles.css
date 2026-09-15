@@ -37,6 +37,7 @@
   --green: #5aff9a;
   --green-dim: #5aff9a;
   --green-line: rgba(90, 255, 154, 0.35);
+  --green-soft: rgba(90, 255, 154, 0.08);
 
   --red: #ff5d5d;
   --red-line: rgba(255, 93, 93, 0.4);
@@ -93,6 +94,7 @@
   --green: #0e8a4c;
   --green-dim: #0e8a4c;
   --green-line: rgba(14, 138, 76, 0.4);
+  --green-soft: rgba(14, 138, 76, 0.08);
 
   --red: #c2311f;
   --red-line: rgba(194, 49, 31, 0.4);
@@ -361,6 +363,11 @@
     @apply min-h-10 px-3 text-[11px];
   }
 
+  /* For anchors styled as buttons that must present as unavailable. */
+  .bx-btn--disabled {
+    @apply pointer-events-none opacity-45;
+  }
+
   .bx-btn--block {
     @apply w-full;
   }
@@ -495,6 +502,34 @@
     @apply font-board text-[11px] tracking-[0.04em] text-green;
   }
 
+  /* ---------- alerts (page-level outcomes; .bx-err stays for inline field notes) ---------- */
+
+  .bx-alert {
+    @apply flex items-start gap-2.5 border px-3.5 py-3 font-body text-[13.5px] leading-[1.55] text-bone;
+  }
+
+  .bx-alert--error {
+    border-color: var(--red-line);
+    background: var(--red-soft);
+  }
+
+  .bx-alert--success {
+    border-color: var(--green-line);
+    background: var(--green-soft);
+  }
+
+  .bx-alert-icon {
+    @apply shrink-0 font-board text-[13px] leading-5;
+  }
+
+  .bx-alert--error .bx-alert-icon {
+    color: var(--red);
+  }
+
+  .bx-alert--success .bx-alert-icon {
+    color: var(--green);
+  }
+
   .bx-form-grid {
     @apply grid grid-cols-1 gap-4;
   }
@@ -529,6 +564,24 @@
 
   .bx-row-actions {
     @apply flex shrink-0 flex-wrap items-center gap-2.5;
+  }
+
+  /* ---------- showtime day grouping ---------- */
+
+  .bx-day-rule {
+    @apply col-span-full mt-3 flex items-center gap-3 border-b border-line-soft pb-1.5 font-board text-[11px] uppercase tracking-[0.12em] text-bone-dim;
+  }
+
+  .bx-day-rule:first-child {
+    margin-top: 0;
+  }
+
+  .bx-day-rule--today {
+    color: var(--amber);
+  }
+
+  .bx-seat-status {
+    @apply mt-1 font-board text-[11px] uppercase tracking-[0.06em] text-red;
   }
 
   .bx-table {
@@ -649,12 +702,21 @@
   .bx-seat--booked {
     border-color: var(--line);
     background: var(--line-soft);
-    color: var(--text-faint);
+    color: var(--text-dim);
   }
 
   .bx-seat--disabled {
     background: repeating-linear-gradient(-45deg, transparent 0 4px, var(--line-soft) 4px 5px);
-    color: var(--text-faint);
+    color: var(--text-dim);
+  }
+
+  /* Seats the server just confirmed as taken by someone else. Red is the
+     booking-flow failure signal; the state clears once the map re-renders. */
+  .bx-seat--conflict {
+    border-color: var(--red-line);
+    background: var(--red-soft);
+    color: var(--red);
+    box-shadow: 0 0 10px var(--red-line);
   }
 
   .bx-legend {
@@ -859,6 +921,39 @@
 
   .bx-summary-value {
     @apply text-right text-[14.5px] text-bone;
+  }
+
+  /* ---------- sticky seat-picker action bar ---------- */
+
+  /* On small screens the total/hold bar pins to the viewport bottom so the
+     action is always reachable while scrolling the seat map. */
+  .bx-summary-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 20px -18px -18px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--line);
+    background: var(--bar-bg);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+
+  @media (min-width: 720px) {
+    .bx-summary-bar {
+      position: static;
+      margin: 20px 0 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
 
   /* ---------- empty state ---------- */

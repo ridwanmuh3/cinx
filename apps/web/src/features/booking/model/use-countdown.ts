@@ -1,10 +1,14 @@
-import { computed, onBeforeUnmount, ref, type Ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue';
 
 /**
  * Ticks a 1 Hz countdown against a reactive ISO timestamp (e.g. a seat-hold
  * `expiresAt`). The source ref is caller-owned: pass a plain ref and set it
  * when a hold starts, or a computed that reacts to loaded data. Shared by
- * the seat picker and checkout pages.
+ * the seat picker, checkout, and pending-booking rows.
+ *
+ * The ticking self-syncs: setting the source starts the clock, clearing it
+ * stops the clock. A manual `start()` is still available for callers that
+ * want an immediate refresh of the remaining time.
  */
 export function useCountdown(expiresAt: Ref<string | null | undefined>) {
   const remainingMs = ref<number | null>(null);
@@ -29,6 +33,11 @@ export function useCountdown(expiresAt: Ref<string | null | undefined>) {
   }
 
   onBeforeUnmount(stop);
+
+  // The source drives the clock: non-null → tick, null → stop. This keeps
+  // pages like checkout (where `expiresAt` arrives with the booking payload)
+  // from rendering a frozen `--:--` because nobody remembered to call start().
+  watch(expiresAt, (value) => (value ? start() : stop()), { immediate: true });
 
   const countdownText = computed(() => {
     const ms = remainingMs.value;

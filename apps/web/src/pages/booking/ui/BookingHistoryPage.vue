@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { NButton } from 'naive-ui';
+import { NButton, useDialog } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatDateTime, formatPrice } from '@/shared/lib/format';
-import { statusChipClass, statusLabel } from '@/features/booking';
+import { describeApiError } from '@/shared/lib/api-errors';
+import { PendingCountdown, statusChipClass, statusLabel } from '@/features/booking';
 import type { Booking } from '@/shared/api/types';
 
 const bookings = ref<Booking[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+const notice = ref<string | null>(null);
 const refreshKey = ref(0);
 
 watch(
@@ -26,7 +28,7 @@ async function load(): Promise<void> {
     const page = await api.listBookings({ limit: 20 });
     bookings.value = page.items;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load your bookings.';
+    error.value = describeApiError(err, 'Could not load your bookings.');
   } finally {
     loading.value = false;
   }
@@ -36,13 +38,32 @@ function reload(): void {
   refreshKey.value += 1;
 }
 
-async function cancel(booking: Booking): Promise<void> {
-  try {
-    await api.cancelBooking(booking.id);
-    reload();
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Cancel failed';
-  }
+const dialog = useDialog();
+
+/** Irreversible, so it gets the same confirmation courtesy as admin deletes. */
+function cancel(booking: Booking): void {
+  dialog.warning({
+    title: `Cancel booking for “${booking.movie?.title ?? 'this showtime'}”?`,
+    content:
+      'The seats will be released immediately and someone else can take them. This cannot be undone.',
+    positiveText: 'Cancel booking',
+    negativeText: 'Keep it',
+    onPositiveClick: async () => {
+      try {
+        await api.cancelBooking(booking.id);
+        notice.value = 'Booking cancelled — the seats have been released.';
+        reload();
+      } catch (err) {
+        error.value = describeApiError(err, 'Could not cancel this booking. Please try again.');
+      }
+    },
+  });
+}
+
+/** A row's hold ran out while the list was open — re-sync server truth
+ *  (the booking flips to EXPIRED) after a beat. */
+function markExpired(): void {
+  window.setTimeout(reload, 1500);
 }
 </script>
 
@@ -58,7 +79,10 @@ async function cancel(booking: Booking): Promise<void> {
   </div>
 
   <template v-else-if="error && bookings.length === 0">
-    <p role="alert" class="bx-err">{{ error }}</p>
+    <div role="alert" class="bx-alert bx-alert--error">
+      <span class="bx-alert-icon" aria-hidden="true">!</span>
+      <span>{{ error }}</span>
+    </div>
   </template>
 
   <template v-else-if="bookings.length === 0">
@@ -74,6 +98,11 @@ async function cancel(booking: Booking): Promise<void> {
   </template>
 
   <template v-else>
+    <div v-if="notice" role="status" class="bx-alert bx-alert--success mb-4">
+      <span class="bx-alert-icon" aria-hidden="true">✓</span>
+      <span>{{ notice }}</span>
+    </div>
+
     <div class="bx-panel">
       <div v-for="b in bookings" :key="b.id" class="bx-row">
         <div>
@@ -84,7 +113,14 @@ async function cancel(booking: Booking): Promise<void> {
           </p>
         </div>
         <div class="flex flex-col items-end gap-2">
-          <span class="bx-chip" :class="statusChipClass(b.status)">{{ statusLabel(b.status) }}</span>
+          <PendingCountdown
+            v-if="b.status === 'PENDING'"
+            :expires-at="b.expiresAt"
+            @expired="markExpired"
+          />
+          <span v-else class="bx-chip" :class="statusChipClass(b.status)">{{
+            statusLabel(b.status)
+          }}</span>
           <div class="bx-row-actions">
             <template v-if="b.status === 'PENDING'">
               <router-link
@@ -110,5 +146,8 @@ async function cancel(booking: Booking): Promise<void> {
     </div>
   </template>
 
-  <p v-if="error && bookings.length > 0" role="alert" class="bx-err mt-4">{{ error }}</p>
+  <div v-if="error && bookings.length > 0" role="alert" class="bx-alert bx-alert--error mt-4">
+    <span class="bx-alert-icon" aria-hidden="true">!</span>
+    <span>{{ error }}</span>
+  </div>
 </template>

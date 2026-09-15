@@ -15,6 +15,7 @@ import {
   type FormRules,
 } from 'naive-ui';
 import * as api from '@/shared/api';
+import { describeApiError } from '@/shared/lib/api-errors';
 import type { AgeRating, Movie, MovieCreateRequest } from '@/shared/api/types';
 
 const formRef = ref<FormInst | null>(null);
@@ -72,7 +73,7 @@ async function load(): Promise<void> {
     const page = await api.listMovies({ limit: 100 });
     movies.value = page.items;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load movies.';
+    error.value = describeApiError(err, 'Could not load movies.');
   } finally {
     loading.value = false;
   }
@@ -131,7 +132,7 @@ async function submit(): Promise<void> {
     form.value = emptyForm();
     refreshKey.value += 1;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Save failed';
+    error.value = describeApiError(err, 'Could not save the movie. Please try again.');
   } finally {
     saving.value = false;
   }
@@ -150,7 +151,7 @@ function remove(movie: Movie): void {
         await api.deleteMovie(movie.id);
         refreshKey.value += 1;
       } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Delete failed';
+        error.value = describeApiError(err, 'Could not delete the movie. Please try again.');
       }
     },
   });

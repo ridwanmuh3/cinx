@@ -46,7 +46,7 @@ function signOut(): void {
       </div>
     </div>
   </header>
-  <main id="main" class="bx-page">
+  <main id="main" class="bx-page" tabindex="-1">
     <div class="bx-frame">
       <router-view />
     </div>

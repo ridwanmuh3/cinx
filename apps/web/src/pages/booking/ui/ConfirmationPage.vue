@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { NButton } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatDateTime, formatPrice } from '@/shared/lib/format';
+import { describeApiError } from '@/shared/lib/api-errors';
 import type { Booking, BookingSeatSnapshot } from '@/shared/api/types';
 
 const POLL_INTERVAL_MS = 4000;
@@ -47,7 +48,7 @@ async function load(): Promise<void> {
   try {
     booking.value = await api.getBooking(id.value);
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load this booking.';
+    error.value = describeApiError(err, 'Could not load this booking.');
   } finally {
     loading.value = false;
   }
@@ -98,7 +99,10 @@ function seatLabel(seats: BookingSeatSnapshot[] | undefined, seatId: string): st
     Loading booking…
   </div>
 
-  <p v-else-if="error" role="alert" class="bx-err">{{ error }}</p>
+  <div v-else-if="error" role="alert" class="bx-alert bx-alert--error">
+    <span class="bx-alert-icon" aria-hidden="true">!</span>
+    <span>{{ error }}</span>
+  </div>
 
   <template v-else-if="booking">
     <div v-if="booking.status === 'PENDING'" class="bx-empty">

@@ -15,6 +15,7 @@ import {
 } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatMedium, formatPrice } from '@/shared/lib/format';
+import { describeApiError } from '@/shared/lib/api-errors';
 import type { Movie, Showtime, Theater } from '@/shared/api/types';
 
 const formRef = ref<FormInst | null>(null);
@@ -69,7 +70,7 @@ async function load(): Promise<void> {
     theaters.value = t.items;
     showtimes.value = s.items;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load showtimes.';
+    error.value = describeApiError(err, 'Could not load showtimes.');
   } finally {
     loading.value = false;
   }
@@ -96,7 +97,7 @@ async function submit(): Promise<void> {
     form.value = { movieId: null, theaterId: null, startsAt: null, priceAmount: 50000 };
     refreshKey.value += 1;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Create failed';
+    error.value = describeApiError(err, 'Could not create the showtime. Please try again.');
   } finally {
     saving.value = false;
   }
@@ -115,7 +116,7 @@ function remove(showtime: Showtime): void {
         await api.deleteShowtime(showtime.id);
         refreshKey.value += 1;
       } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Delete failed';
+        error.value = describeApiError(err, 'Could not delete the showtime. Please try again.');
       }
     },
   });

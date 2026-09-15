@@ -13,6 +13,7 @@ import {
   type FormRules,
 } from 'naive-ui';
 import * as api from '@/shared/api';
+import { describeApiError } from '@/shared/lib/api-errors';
 import type { Theater } from '@/shared/api/types';
 
 const formRef = ref<FormInst | null>(null);
@@ -66,7 +67,7 @@ async function load(): Promise<void> {
     const page = await api.listTheaters({ limit: 100 });
     theaters.value = page.items;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load theaters.';
+    error.value = describeApiError(err, 'Could not load theaters.');
   } finally {
     loading.value = false;
   }
@@ -89,7 +90,7 @@ async function submit(): Promise<void> {
     form.value = { name: '', address: '', rows: 8, cols: 12 };
     refreshKey.value += 1;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Create failed';
+    error.value = describeApiError(err, 'Could not create the theater. Please try again.');
   } finally {
     saving.value = false;
   }
@@ -108,7 +109,7 @@ function remove(theater: Theater): void {
         await api.deleteTheater(theater.id);
         refreshKey.value += 1;
       } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Delete failed';
+        error.value = describeApiError(err, 'Could not delete the theater. Please try again.');
       }
     },
   });
