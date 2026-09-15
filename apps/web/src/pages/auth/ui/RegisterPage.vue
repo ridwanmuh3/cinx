@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { NButton, NForm, NFormItem, NInput, type FormInst, type FormRules } from 'naive-ui';
 import { useAuthStore } from '@/entities/user';
 import ThemeToggle from '@/shared/ui/ThemeToggle.vue';
 
 const auth = useAuthStore();
+const route = useRoute();
 const router = useRouter();
+
+/** Where to land after signing in — defaults to the cinema. */
+const redirectTo = (): string => {
+  const r = route.query.redirect;
+  return typeof r === 'string' && r.startsWith('/') ? r : '/movies';
+};
 
 const formRef = ref<FormInst | null>(null);
 const form = ref({ name: '', email: '', password: '' });
@@ -39,8 +46,15 @@ async function onSubmit(): Promise<void> {
   error.value = null;
   try {
     await auth.register(form.value);
-    router.push('/login');
+    // Straight into the account: no detour through the login form.
+    await auth.login({ email: form.value.email, password: form.value.password });
+    await router.push(redirectTo());
   } catch (err) {
+    if (auth.isAuthenticated) {
+      // Registered but auto-login hiccuped — the account exists; ask them to sign in.
+      await router.push({ path: '/login', query: { registered: '1' } });
+      return;
+    }
     error.value = err instanceof Error ? err.message : 'Registration failed';
   } finally {
     loading.value = false;

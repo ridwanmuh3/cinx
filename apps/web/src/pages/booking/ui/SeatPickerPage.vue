@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { NButton } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatDateTime, formatPrice } from '@/shared/lib/format';
-import { useCountdown } from '@/features/booking';
+import { describeApiError } from '@/shared/lib/api-errors';
+import { seatConflictFromError, useCountdown } from '@/features/booking';
 import type { SeatAvailability, SeatMap, Showtime } from '@/shared/api/types';
 
 interface HeldSeatInfo {
@@ -28,6 +29,8 @@ const selected = ref<Set<string>>(new Set());
 const held = ref<{ bookingId: string; expiresAt: string; seats: HeldSeatInfo[] } | null>(null);
 const holding = ref(false);
 const holdError = ref<string | null>(null);
+/** Seat ids the server just reported as taken by someone else. */
+const conflictIds = ref<Set<string>>(new Set());
 
 /* ---- hold countdown (5-minute TTL from the API) ---- */
 const holdExpiresAt = ref<string | null>(null);
@@ -49,7 +52,7 @@ async function load(): Promise<void> {
     showtime.value = s;
     seatMap.value = map;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Could not load the seat map.';
+    error.value = describeApiError(err, 'Could not load the seat map.');
   } finally {
     loading.value = false;
   }
@@ -84,8 +87,19 @@ const total = computed(() => {
   return sum;
 });
 
-function isPicked(id: string): boolean {
-  return selected.value.has(id);
+/** Labels of the seats currently picked, e.g. "B7, B8" — shown in the action bar. */
+const selectedLabels = computed(() => {
+  const map = seatMap.value;
+  if (!map) return '';
+  return map.seats
+    .filter((s) => selected.value.has(s.id))
+    .sort((a, b) => (a.row === b.row ? a.number - b.number : a.row.localeCompare(b.row)))
+    .map((s) => `${s.row}${s.number}`)
+    .join(', ');
+});
+
+function isPicked(seatId: string): boolean {
+  return selected.value.has(seatId);
 }
 
 /** A seat is only blocked when explicitly occupied/held or disabled; a
@@ -96,23 +110,21 @@ function isUnavailable(seat: SeatAvailability): boolean {
 
 function seatClass(seat: SeatAvailability): string {
   const cls: string[] = [];
-  if (seat.isDisabled) {
+  if (isPicked(seat.id)) {
+    cls.push('bx-seat--selected');
+  } else if (conflictIds.value.has(seat.id)) {
+    cls.push('bx-seat--conflict');
+  } else if (seat.isDisabled) {
     cls.push('bx-seat--disabled');
   } else if (seat.status === 'BOOKED') {
     cls.push('bx-seat--booked');
   } else if (seat.status === 'HELD') {
     cls.push('bx-seat--held');
-  } else if (isPicked(seat.id)) {
-    cls.push('bx-seat--selected');
   }
-  if (seat.category === 'VIP' && !isPicked(seat.id) && seat.status === 'AVAILABLE') {
-    cls.push('bx-seat--vip');
-  }
-  if (seat.category === 'COUPLE' && !isPicked(seat.id) && seat.status === 'AVAILABLE') {
-    cls.push('bx-seat--couple');
-  }
-  if (seat.isAccessible && !isPicked(seat.id) && seat.status === 'AVAILABLE') {
-    cls.push('bx-seat--accessible');
+  if (!isPicked(seat.id) && seat.status === 'AVAILABLE') {
+    if (seat.category === 'VIP') cls.push('bx-seat--vip');
+    if (seat.category === 'COUPLE') cls.push('bx-seat--couple');
+    if (seat.isAccessible) cls.push('bx-seat--accessible');
   }
   return cls.join(' ');
 }
@@ -120,12 +132,13 @@ function seatClass(seat: SeatAvailability): string {
 function seatAria(seat: SeatAvailability): string {
   const category = seat.category.toLowerCase();
   const accessible = seat.isAccessible ? ', accessible' : '';
+  const conflict = conflictIds.value.has(seat.id) ? ', just taken' : '';
   const status = seat.isDisabled
     ? 'unavailable'
     : isPicked(seat.id)
       ? 'selected'
       : seat.status.toLowerCase();
-  return `Row ${seat.row}, seat ${seat.number}, ${category}${accessible}, ${status}`;
+  return `Row ${seat.row}, seat ${seat.number}, ${category}${accessible}${conflict}, ${status}`;
 }
 
 function toggle(seat: SeatAvailability): void {
@@ -133,6 +146,20 @@ function toggle(seat: SeatAvailability): void {
   const next = new Set(selected.value);
   if (!next.delete(seat.id)) next.add(seat.id);
   selected.value = next;
+}
+
+/** Pulls the latest map, keeping the just-taken seats highlighted until the
+ *  user makes their next move. Selection is cleared — those plans are dead. */
+async function refreshAfterConflict(conflict: { conflictSeatIds: Set<string>; message: string }): Promise<void> {
+  selected.value = new Set();
+  try {
+    const map = await api.getSeatMap(id.value);
+    seatMap.value = map;
+  } catch {
+    // Even a failed refresh must not hide the truth about the lost seats.
+  }
+  conflictIds.value = conflict.conflictSeatIds;
+  holdError.value = conflict.message;
 }
 
 async function hold(): Promise<void> {
@@ -144,6 +171,7 @@ async function hold(): Promise<void> {
   const ids = [...selected.value];
   holding.value = true;
   holdError.value = null;
+  conflictIds.value = new Set();
   try {
     const res = await api.hold({ showtimeId: id.value, seatIds: ids });
     held.value = {
@@ -159,9 +187,17 @@ async function hold(): Promise<void> {
     };
     holdExpiresAt.value = res.expiresAt;
     startCountdown();
-    router.push({ path: '/bookings/checkout', query: { bookingId: res.bookingId } });
+    await router.push({ path: '/bookings/checkout', query: { bookingId: res.bookingId } });
   } catch (err) {
-    holdError.value = err instanceof Error ? err.message : 'Could not hold seats';
+    const conflict = seatConflictFromError(err, seatMap.value);
+    if (conflict) {
+      await refreshAfterConflict({
+        conflictSeatIds: new Set(conflict.conflictSeatIds),
+        message: conflict.message,
+      });
+    } else {
+      holdError.value = describeApiError(err, 'Could not hold those seats. Please try again.');
+    }
   } finally {
     holding.value = false;
   }
@@ -174,7 +210,10 @@ async function hold(): Promise<void> {
     Loading seat map…
   </div>
 
-  <p v-else-if="error" role="alert" class="bx-err">{{ error }}</p>
+  <div v-else-if="error" role="alert" class="bx-alert bx-alert--error">
+    <span class="bx-alert-icon" aria-hidden="true">!</span>
+    <span>{{ error }}</span>
+  </div>
 
   <template v-else-if="seatMap && showtime">
     <div class="bx-steps" aria-hidden="true">
@@ -208,6 +247,10 @@ async function hold(): Promise<void> {
             :class="{ 'bx-count--expired': expired, 'bx-count--warn': warning }"
             >{{ countdownText }}</span
           >
+        </div>
+        <div v-if="held && expired" role="alert" class="bx-alert bx-alert--error mt-3">
+          <span class="bx-alert-icon" aria-hidden="true">!</span>
+          <span>Your hold expired and the seats were released. Pick your seats again.</span>
         </div>
 
         <div class="bx-seatmap mt-5">
@@ -253,18 +296,26 @@ async function hold(): Promise<void> {
               ><span class="bx-swatch bx-swatch--disabled"></span>Unavailable</span
             >
           </div>
+          <p class="bx-label mt-4 text-center">Up to 8 seats per booking</p>
         </div>
 
-        <div class="bx-hold mt-5">
+        <div class="bx-summary-bar">
           <span class="bx-data text-sm text-bone-dim">
-            Selected: {{ selectedCount }} seat(s) · Total: {{ formatPrice(total) }}
+            <template v-if="selectedCount > 0 && selectedLabels">
+              Selected: {{ selectedCount }} seat(s) · {{ selectedLabels }} ·
+            </template>
+            <template v-else>Selected: {{ selectedCount }} seat(s) ·</template>
+            Total: {{ formatPrice(total) }}
           </span>
           <n-button type="primary" :loading="holding" :disabled="selectedCount === 0" @click="hold">
             {{ holding ? 'Holding…' : 'Hold seats' }}
           </n-button>
         </div>
 
-        <p v-if="holdError" role="alert" class="bx-err mt-4">{{ holdError }}</p>
+        <div v-if="holdError" role="alert" class="bx-alert bx-alert--error mt-4">
+          <span class="bx-alert-icon" aria-hidden="true">!</span>
+          <span>{{ holdError }}</span>
+        </div>
       </div>
     </div>
   </template>

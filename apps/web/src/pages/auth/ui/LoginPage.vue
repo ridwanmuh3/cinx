@@ -13,6 +13,7 @@ const formRef = ref<FormInst | null>(null);
 const form = ref({ email: '', password: '' });
 const loading = ref(false);
 const error = ref<string | null>(null);
+const registered = route.query.registered === '1';
 
 const rules: FormRules = {
   email: [
@@ -52,6 +53,10 @@ async function onSubmit(): Promise<void> {
         <ThemeToggle />
       </div>
       <h1 class="bx-auth-title">Sign in</h1>
+      <div v-if="registered" role="status" class="bx-alert bx-alert--success mb-4">
+        <span class="bx-alert-icon" aria-hidden="true">✓</span>
+        <span>Account created — sign in to continue.</span>
+      </div>
       <n-form
         ref="formRef"
         :model="form"
