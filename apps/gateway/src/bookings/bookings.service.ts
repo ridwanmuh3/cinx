@@ -144,17 +144,19 @@ export class BookingsService {
     }
     if (booking.status === 'CONFIRMED') {
       try {
-        view.tickets = await this.createTickets(booking);
+        // Read-only: issuing tickets is ticket-service's job at confirmation,
+        // not a side effect of the customer loading their booking.
+        view.tickets = await this.listTickets(booking);
       } catch {
-        // tickets already issued or unavailable — non-fatal
+        // tickets unavailable — non-fatal
       }
     }
     return view;
   }
 
-  private createTickets(booking: BookingDto): Promise<TicketDto[]> {
+  private listTickets(booking: BookingDto): Promise<TicketDto[]> {
     return grpcSend<TicketList>(
-      this.ticket.CreateTickets({ id: booking.id, userId: booking.userId }),
+      this.ticket.ListTickets({ id: booking.id, userId: booking.userId }),
     ).then((list) => list.items ?? []);
   }
 }

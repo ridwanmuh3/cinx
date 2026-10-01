@@ -130,6 +130,28 @@ export class PaymentService {
     await this.xendit.expireInvoice(invoiceId);
   }
 
+  /**
+   * Request a refund for a paid invoice. Returns the provider refund id and
+   * its normalized status (PENDING until Xendit settles it).
+   */
+  async createRefundForPayment(args: {
+    invoiceId: string;
+    amount: number;
+    reason?: string;
+  }): Promise<{ refundId: string; status: string }> {
+    const refund = await this.xendit.createRefund({
+      invoiceId: args.invoiceId,
+      amount: args.amount,
+      reason: args.reason,
+    });
+    return { refundId: refund.id, status: (refund.status ?? '').toUpperCase() };
+  }
+
+  async getRefundStatus(refundId: string): Promise<string> {
+    const refund = await this.xendit.getRefund(refundId);
+    return refund.status;
+  }
+
   verifySignature(signature: string): void {
     if (!XENDIT_WEBHOOK_TOKEN) {
       throw new RpcException(

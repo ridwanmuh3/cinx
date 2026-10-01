@@ -121,8 +121,12 @@ export interface SeatAvailability {
   status: SeatStatus;
 }
 
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED';
+export type BookingStatus =
+  'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED' | 'REFUND_PENDING' | 'REFUNDED';
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
+
+/** Why a booking was cancelled: the customer, or a declined payment. */
+export type CancellationReason = 'CUSTOMER' | 'PAYMENT_DECLINED';
 
 export interface HeldSeat {
   seatId: string;
@@ -141,7 +145,7 @@ export interface HoldResponse {
   currency: 'IDR';
   seats: HeldSeat[];
   payment: {
-    providerId: string;
+    externalId: string;
     method: 'XENDIT';
     status: PaymentStatus;
     checkoutUrl: string | null;
@@ -181,6 +185,8 @@ export interface Booking {
   totalAmount: number;
   currency: 'IDR';
   status: BookingStatus;
+  /** Present only when status is CANCELLED. */
+  cancellationReason?: CancellationReason | null;
   expiresAt: string;
   createdAt: string;
   updatedAt: string;

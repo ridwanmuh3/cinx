@@ -12,10 +12,12 @@ service TicketService {
   rpc List(BookingListRequest) returns (PaginatedBookings) {}
   rpc Availability(BookingAvailabilityRequest) returns (BookingAvailabilityResponse) {}
   rpc Charge(PaymentChargeRequest) returns (PaymentChargeResponse) {}
-  rpc Confirm(PaymentConfirmRequest) returns (BookingDto) {}
   rpc Webhook(PaymentWebhookRequest) returns (Empty) {}
   rpc SyncPaymentStatus(PaymentSyncRequest) returns (BookingDto) {}
-  rpc CreateTickets(BookingGetRequest) returns (TicketList) {}
+  // IssueTickets is the write path (called internally on confirmation);
+  // ListTickets is the read path. A read must never create domain state.
+  rpc IssueTickets(BookingGetRequest) returns (TicketList) {}
+  rpc ListTickets(BookingGetRequest) returns (TicketList) {}
   rpc GetTicketByCode(TicketByCodeRequest) returns (TicketLookupDto) {}
 }
 
@@ -79,7 +81,8 @@ message HoldResponse {
 }
 
 message PaymentSummary {
-  string providerId = 1;
+  // Our own reference handed to the provider (cix-{bookingId}) — not theirs.
+  string externalId = 1;
   string method = 2;
   string status = 3;
   string checkoutUrl = 4;
@@ -106,6 +109,8 @@ message BookingDto {
   string createdAt = 8;
   string updatedAt = 9;
   repeated BookingSeatSnapshot seats = 10;
+  // Set only when status is CANCELLED (CUSTOMER | PAYMENT_DECLINED).
+  string cancellationReason = 11;
 }
 
 message PaginatedBookings {
@@ -121,7 +126,7 @@ message PaymentChargeRequest {
 }
 
 message PaymentChargeResponse {
-  string providerId = 1;
+  string externalId = 1;
   bool paid = 2;
   string providerTxnId = 3;
   string paidAt = 4;
@@ -129,15 +134,6 @@ message PaymentChargeResponse {
   string checkoutUrl = 6;
   string invoiceId = 7;
   string method = 8;
-}
-
-message PaymentConfirmRequest {
-  string bookingId = 1;
-  string userId = 2;
-  bool paid = 3;
-  string providerId = 4;
-  string paidAt = 5;
-  string receipt = 6;
 }
 
 message PaymentWebhookRequest {

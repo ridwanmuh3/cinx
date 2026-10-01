@@ -5,6 +5,8 @@ const LABELS: Record<BookingStatus, string> = {
   CONFIRMED: 'Confirmed',
   EXPIRED: 'Expired',
   CANCELLED: 'Cancelled',
+  REFUND_PENDING: 'Refund in progress',
+  REFUNDED: 'Refunded',
 };
 
 export function statusLabel(status: string): string {
@@ -19,6 +21,10 @@ export function statusChipClass(status: string): string {
       return 'bx-chip--green';
     case 'EXPIRED':
       return 'bx-chip--red';
+    // REFUND_PENDING is amber because it is still in flight; CANCELLED and
+    // REFUNDED are terminal and use the plain (muted) chip.
+    case 'REFUND_PENDING':
+      return 'bx-chip--amber';
     default:
       return '';
   }

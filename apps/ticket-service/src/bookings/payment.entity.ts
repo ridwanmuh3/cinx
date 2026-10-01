@@ -12,7 +12,7 @@ import { Booking } from './booking.entity';
 
 @Entity('payments')
 @Index(['status'])
-@Index(['providerId'])
+@Index(['externalId'])
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -22,9 +22,19 @@ export class Payment {
   })
   booking: Booking;
 
-  @Column({ name: 'provider_id', type: 'varchar', length: 200 })
-  providerId: string;
+  /**
+   * Our own reference handed to the provider (`cix-{bookingId}`), so we can
+   * recognise a callback. Not the provider's identifier — that is a lie the
+   * old name `provider_id` told.
+   */
+  @Column({ name: 'external_id', type: 'varchar', length: 200 })
+  externalId: string;
 
+  /**
+   * The provider's identifier for the settled payment. Distinct from
+   * `invoiceId`: the Invoices API does not hand back a separate transaction
+   * id, so this stays null rather than being filled with the invoice id.
+   */
   @Column({
     name: 'provider_txn_id',
     type: 'varchar',
@@ -49,10 +59,17 @@ export class Payment {
 
   @Column({
     type: 'enum',
-    enum: ['PENDING', 'PAID', 'FAILED'],
+    enum: ['PENDING', 'PAID', 'FAILED', 'REFUND_PENDING', 'REFUNDED'],
     default: 'PENDING',
   })
   status: PaymentStatus;
+
+  /** Provider refund id (Xendit `rfd-…`), set when a refund is requested. */
+  @Column({ name: 'refund_id', type: 'varchar', length: 200, nullable: true })
+  refundId: string | null;
+
+  @Column({ name: 'refunded_at', type: 'timestamptz', nullable: true })
+  refundedAt: Date | null;
 
   @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
   paidAt: Date | null;

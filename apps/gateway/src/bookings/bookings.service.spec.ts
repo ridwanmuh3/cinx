@@ -21,6 +21,7 @@ describe('BookingsService', () => {
     totalAmount: 100000,
     currency: 'IDR' as const,
     status: 'PENDING' as const,
+    cancellationReason: null,
     expiresAt: '2026-08-12T15:00:00.000Z',
     createdAt: '2026-08-12T14:00:00.000Z',
     updatedAt: '2026-08-12T14:00:00.000Z',
@@ -59,7 +60,7 @@ describe('BookingsService', () => {
 
   it('pay creates a Xendit invoice and returns its checkout URL', async () => {
     const charge = {
-      providerId: 'cix-b1',
+      externalId: 'cix-b1',
       paid: false,
       providerTxnId: null,
       paidAt: null,

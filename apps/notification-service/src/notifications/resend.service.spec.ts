@@ -47,7 +47,7 @@ describe('ResendService', () => {
       bookingId: 'b-1',
       amount: 150000,
       currency: 'IDR',
-      providerId: 'x_1',
+      externalId: 'x_1',
       providerTxnId: 'txn_1',
       paidAt: '2026-08-14T10:00:00.000Z',
       method: 'XENDIT',

@@ -87,12 +87,36 @@ Sumber: `apps/ticket-service/src/bookings/bookings.service.ts`
 3. WEBHOOK Xendit → gateway → ticket-service
            ├─ PAID    → Booking CONFIRMED + buat tiket TKT-XXXXXX (idempotent)
            └─ EXPIRED → Booking CANCELLED + release locks
-4. EXPIRE  Cron tiap menit (@Cron reconcile) + TTL redlock auto-release
+4. REFUND  POST /bookings/:id/cancel pada booking CONFIRMED
+           ├─ POST /refunds (Xendit) — refund bersifat async
+           ├─ SUCCEEDED → REFUNDED: tiket di-void, kursi bisa dijual lagi
+           ├─ PENDING   → REFUND_PENDING: kursi MASIH dipegang, tiket masih sah
+           └─ FAILED (ditemukan reconcile) → kembali CONFIRMED (uang tidak jadi pindah)
+5. EXPIRE  Cron tiap menit (@Cron reconcile) + TTL redlock auto-release
            → PENDING lewat 5 menit → EXPIRED, kursi kembali tersedia
-5. FALLBACK POST /bookings/:id/sync-payment — kalau webhook telat/hilang,
+           Cron yang sama menuntaskan REFUND_PENDING (ini langkah 4)
+6. FALLBACK POST /bookings/:id/sync-payment — kalau webhook telat/hilang,
            server yang menanyakan status ke Xendit (client-side polling di
            ConfirmationPage.vue memanggil ini)
 ```
+
+### Kompensasi saga: refund bukan sekadar ubah status
+
+Langkah `PAY` adalah satu-satunya langkah yang benar-benar memindahkan uang,
+ jadi pembatalannya tidak boleh hanya menandai booking mati. Aturannya:
+
+- **Jangan pernah bilang REFUNDED sebelum provider bilang SUCCEEDED.**
+  Booking baru berstatus `REFUNDED` (terminal) setelah Xendit menuntaskan
+  refund; selama masih `REFUND_PENDING` booking tetap dianggap lunas.
+- **Kepemilikan kursi mengikuti uang, bukan keinginan.** Selama
+  `REFUND_PENDING` kursi tetap `BOOKED` dan tiket tetap sah; kalau refund
+  gagal, booking kembali `CONFIRMED` tanpa ada yang perlu dipulihkan.
+- **Idempoten secara alami:** `REFUND_PENDING`/`REFUNDED` ditolak 409, jadi
+  cancel kedua tidak pernah mengirim refund kedua.
+
+Ini contoh konkret kenapa saga butuh langkah kompensasi eksplisit: tanpa itu,
+ pelanggan yang sudah membayar tidak punya jalan keluar sama sekali — persis
+ kondisi kode sebelum increment refund ini.
 
 **Dua lapis pertahanan anti double-booking:**
 
@@ -197,10 +221,15 @@ adalah jalur cepatnya. Kalau webhook hilang (partisi Xendit→Anda), sistem
   compose ini (di produksi: HA Postgres, Redis Sentinel/Cluster).
 - **Degradasi fungsional, bukan crash:** landing page punya `FALLBACK_ROWS` +
   badge "DEMO BOARD" (`LandingPage.vue`) — gateway mati sekalipun, landing
-  tetap menampilkan konten. Ini *graceful degradation* di edge.
-- **Timeout & retry ada di batas service** (`grpcSend` di shared), dan kegagalan
-  Redis dipetakan ke 503 yang jujur — bukan 409 yang menipu user bahwa kursi
-  sudah diambil orang.
+  tetap menampilkan konten. Ini *graceful degradation* di edge.- **Timeout & retry ada di batas service** (`grpcSend` di shared), dan kegagalan Redis dipetakan ke 503 yang jujur — bukan 409 yang menipu user bahwa kursi sudah diambil orang.
+- **Email adalah efek samping, bukan langkah transaksi.** Setelah booking
+  `CONFIRMED`, ticket-service mem-publish `booking.confirmed` dan
+  `payment.received` ke exchange fanout RabbitMQ; notification-service yang
+  mengubahnya jadi email. Publish bersifat *best-effort*: kalau broker mati,
+  booking yang sudah dibayar tetap sah dan kegagalannya hanya dicatat — uang
+  tidak boleh batal karena email gagal. Resipien diambil lewat gRPC
+  `UserService.Get`, jadi ticket-service tetap tidak menyimpan data pelanggan
+  (batas *data ownership* tetap utuh).
 
 ---
 

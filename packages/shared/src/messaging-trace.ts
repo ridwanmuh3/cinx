@@ -17,9 +17,13 @@ import { Observable } from 'rxjs';
 export const TRACEPARENT_HEADER = 'traceparent';
 export const TRACESTATE_HEADER = 'tracestate';
 
+/** Loose carrier for headers *we receive* (AMQP hands over arbitrary values). */
 type HeaderCarrier = Record<string, unknown>;
 
-function setter(carrier: HeaderCarrier, key: string, value: string): void {
+/** AMQP message properties are string-only. */
+export type StringHeaders = Record<string, string>;
+
+function setter(carrier: StringHeaders, key: string, value: string): void {
   carrier[key] = value;
 }
 
@@ -34,13 +38,21 @@ function keys(carrier: HeaderCarrier): string[] {
 
 /**
  * Stamp the active trace context (W3C traceparent/tracestate) into an
- * outgoing message header map. Use on every RMQ publish so the consumer can
- * link its processing span to the producer trace:
+ * outgoing message header map, so the consumer can join the producer trace.
  *
- *   await client.emit(pattern, { ...payload, headers: injectTraceHeaders() });
+ * Headers must travel as AMQP message *properties*, not inside the payload —
+ * that is where `RmqTraceInterceptor` looks for them. Use `RmqRecordBuilder`:
+ *
+ *   const record = new RmqRecordBuilder(payload)
+ *     .setOptions({ headers: injectTraceHeaders() })
+ *     .build();
+ *   client.emit(pattern, record);
  */
-export function injectTraceHeaders(headers: HeaderCarrier = {}): HeaderCarrier {
-  const out: HeaderCarrier = { ...headers };
+export function injectTraceHeaders(headers: HeaderCarrier = {}): StringHeaders {
+  const out: StringHeaders = {};
+  for (const [key, value] of Object.entries(headers)) {
+    out[key] = String(value);
+  }
   propagation.inject(context.active(), out, { set: setter });
   return out;
 }

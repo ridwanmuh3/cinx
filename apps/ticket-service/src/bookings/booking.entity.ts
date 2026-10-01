@@ -7,7 +7,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { BookingStatus } from '@ticketing/shared';
+import { BookingStatus, CancellationReason } from '@ticketing/shared';
 import { BookingSeat } from './booking-seat.entity';
 import { Payment } from './payment.entity';
 import { Ticket } from './ticket.entity';
@@ -38,10 +38,31 @@ export class Booking {
 
   @Column({
     type: 'enum',
-    enum: ['PENDING', 'CONFIRMED', 'EXPIRED', 'CANCELLED'],
+    enum: [
+      'PENDING',
+      'CONFIRMED',
+      'EXPIRED',
+      'CANCELLED',
+      'REFUND_PENDING',
+      'REFUNDED',
+    ],
     default: 'PENDING',
   })
   status: BookingStatus;
+
+  /**
+   * Why the Booking was cancelled: `CUSTOMER` (they called it off) or
+   * `PAYMENT_DECLINED` (the provider refused). Null unless status is
+   * CANCELLED — a lapsed hold is EXPIRED, not cancelled, so it carries no
+   * reason.
+   */
+  @Column({
+    name: 'cancellation_reason',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+  })
+  cancellationReason: CancellationReason | null;
 
   @Column({ name: 'expires_at', type: 'timestamptz' })
   expiresAt: Date;

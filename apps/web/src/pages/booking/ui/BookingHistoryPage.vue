@@ -40,18 +40,27 @@ function reload(): void {
 
 const dialog = useDialog();
 
-/** Irreversible, so it gets the same confirmation courtesy as admin deletes. */
+/** Irreversible, so it gets the same confirmation courtesy as admin deletes.
+ *  A paid booking is refunded rather than merely dropped — say so plainly,
+ *  including that the refund can take a few days to land. */
 function cancel(booking: Booking): void {
+  const paid = booking.status === 'CONFIRMED';
   dialog.warning({
     title: `Cancel booking for “${booking.movie?.title ?? 'this showtime'}”?`,
-    content:
-      'The seats will be released immediately and someone else can take them. This cannot be undone.',
-    positiveText: 'Cancel booking',
+    content: paid
+      ? 'This booking is paid. We refund the full amount to your original payment method — it can take a few days to appear. Your tickets stop working once the refund settles.'
+      : 'The seats will be released immediately and someone else can take them. This cannot be undone.',
+    positiveText: paid ? 'Cancel & refund' : 'Cancel booking',
     negativeText: 'Keep it',
     onPositiveClick: async () => {
       try {
-        await api.cancelBooking(booking.id);
-        notice.value = 'Booking cancelled — the seats have been released.';
+        const updated = await api.cancelBooking(booking.id);
+        notice.value =
+          updated.status === 'REFUNDED'
+            ? 'Booking refunded — the money is on its way back and the seats are released.'
+            : paid
+              ? 'Refund requested — your seats stay held until it settles. Check back here for the status.'
+              : 'Booking cancelled — the seats have been released.';
         reload();
       } catch (err) {
         error.value = describeApiError(err, 'Could not cancel this booking. Please try again.');
@@ -139,6 +148,9 @@ function markExpired(): void {
               >
                 View tickets
               </router-link>
+              <n-button size="small" quaternary class="bx-ctl-btn" @click="cancel(b)"
+                >Cancel &amp; refund</n-button
+              >
             </template>
           </div>
         </div>
