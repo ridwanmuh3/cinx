@@ -180,6 +180,149 @@ DB is the source of truth; Redis is the concurrency layer for seat holding.
 - Demo walkthrough: `scripts/demo-walkthrough.sh` / `pnpm demo` (register →
   showtime → hold → mock pay → ticket lookup against the REST gateway).
 
+### [COMPLETED] Phase 6 — Refunds (saga compensation for paid bookings)
+
+- `POST /bookings/:id/cancel` no longer dead-ends on a paid booking: a
+  `CONFIRMED` booking is refunded through Xendit instead of rejected with 409.
+- New terminal/in-flight states `REFUND_PENDING` + `REFUNDED` on `Booking`,
+  and `REFUND_PENDING` + `REFUNDED` (+ `refund_id`, `refunded_at`) on
+  `Payment`; `XenditClient.createRefund`/`getRefund` wrap `POST /refunds` and
+  `GET /refunds/{id}`.
+- Money invariant: a booking is only `REFUNDED` once Xendit reports
+  `SUCCEEDED`. A `PENDING` refund keeps the booking paid — its seats stay
+  `BOOKED` and its tickets stay valid — and is settled by
+  `reconcileRefunds()` (same every-minute cron). A `FAILED` refund reverts the
+  booking to `CONFIRMED`, since no money moved. Tickets are voided only on a
+  settled refund.
+- Freed seats are resellable: `REFUNDED` was added to the stale-seat-row
+  reaper, so the `UNIQUE (showtime_id, seat_id)` guard does not strand them.
+- 15 new unit cases (refund success / in-flight / 409s / 404 ownership / 502
+  provider failure, availability for `REFUND_PENDING`/`REFUNDED`, reconcile
+  finalize/revert/leave-alone/provider-error); ticket-service 68 pass.
+- Web: `Cancel & refund` action on confirmed bookings with refund-aware copy,
+  new status labels/chips, updated FAQ. Docs: `openapi.yaml` (cancel + enums +
+  `Payment.refundId`), `ERD.md`, `ARCHITECTURE.md` §3.
+
+## Phase 7 — Domain flow cohesion
+
+Trigger: the booking flow does not read as one coherent story. Vocabulary is
+overloaded, one status field carries three concerns, and one leg of the flow
+(the confirmation email) never runs at all. Canonical language now lives in
+[`CONTEXT.md`](./CONTEXT.md); this phase makes the code agree with it.
+
+Decisions taken (recorded here because they are expensive to reverse):
+
+- **Booking is the noun; hold is the action.** There is no second entity.
+- **`CANCELLED` stays one state, but records why** — a `cancellationReason`
+  distinguishes `CUSTOMER` from `PAYMENT_DECLINED`. `EXPIRED` keeps its own
+  meaning (the hold window lapsed), so "cancelled" never means "timed out".
+- Renames and removals below are taken now rather than deferred, because
+  leaving them means the next feature pays the confusion tax again.
+
+**Planning update (after increment B/C):** execution order was changed from
+A→D to **B → C → A → D**. A is mechanical churn across contracts and fixtures;
+B and C are the ones that change behaviour (B encodes the vocabulary decision,
+C fixes a flow that never ran). Doing the behaviour first meant the review
+budget went to the part a user can feel, and nothing in A blocks either. A and
+D remain planned and unstarted.
+
+### Increment A — Payment references tell the truth, dead paths removed (F5, F7) **[COMPLETED]**
+
+- `Payment.providerId` → `externalId`. It always held `cix-{bookingId}` — _our_
+  reference handed to the provider, not the provider's. Renamed on the entity,
+  the REST/gRPC contracts and the web types.
+- `providerTxnId` stops being stuffed with the Xendit **invoice** id (it was
+  the same value as `invoiceId` on the webhook path, and the external
+  reference on the confirm path). It now carries only the provider's
+  transaction reference, or `null`.
+- Delete the unreachable `Confirm` RPC: proto, `@GrpcMethod`, stub,
+  `PaymentConfirmRequest`, `BookingsService.confirm` and its tests. Nothing
+  could reach it (no gateway route), so it advertised a third confirmation
+  path that does not exist. Confirmation paths are now exactly two: webhook
+  and `sync-payment`.
+- **Constraint:** `external_id` is `NOT NULL`, and this repo uses
+  `synchronize: true` with no migrations. A dev `ticket_db` that already has
+  payment rows needs recreating (`pnpm infra:down` + volume) rather than
+  TypeORM altering a `NOT NULL` column in place.
+- **Found while deleting:** `booking_confirms_total` (the Grafana "Booking
+  confirmations" panel) was only ever incremented from the dead `confirm()`
+  path, so the panel was permanently empty. The counter is now incremented on
+  the two live confirmation paths (webhook, `sync-payment`).
+- The two integration tests that drove the dead path were retargeted to the
+  webhook, which exercises the same 410 liveness guard over live Postgres +
+  Redis. Unit cases: 72 → 67 (5 dead-path cases removed).
+
+### Increment B — A cancellation says why it happened (F2, F3) **[COMPLETED]**
+
+- Add `cancellationReason` (`CUSTOMER` | `PAYMENT_DECLINED`) to `Booking`,
+  exposed on `BookingDto` and the REST contract.
+- Set it at both sites that currently produce `CANCELLED`: the customer's
+  `cancel` (`CUSTOMER`) and a provider decline via webhook/sync
+  (`PAYMENT_DECLINED`).
+- `EXPIRED` is untouched and stays the only state for a lapsed hold.
+
+### Increment C — Reconnect the confirmation-email leg (F1) **[COMPLETED]**
+
+- `notification-service` consumes `booking.confirmed` and `payment.received`,
+  but **nothing publishes them** — ticket-service has no RMQ producer, so the
+  emails documented in `README.md` never send. Wire the producer.
+- Resolve the recipient through the existing `UserService.Get` →
+  `UserContactDto` RPC (already implemented and currently unconsumed) via a
+  ticket-service → user-service client, mirroring the cinema client module.
+- Publish from both confirmation paths (webhook and `sync-payment`), stamped
+  with `injectTraceHeaders()` so `RmqTraceInterceptor` finally has a producer
+  to join. Publishing is best-effort: a dead broker must never fail a booking
+  that is already paid for.
+
+### Increment D — One writer of tickets (F6) **[COMPLETED]**
+
+- Tickets are currently written by `ensureTickets()` at confirmation **and**
+  by the gateway's `enrich()` calling `CreateTickets` on every `GET`. A read
+  should not create domain state.
+- Split the RPC: `IssueTickets` (write, used internally at confirmation) and
+  `ListTickets` (read, used by the gateway to display them).
+- The gateway's `enrich()` now calls `ListTickets`, so loading a booking no
+  longer creates tickets. `listTickets` is asserted to be write-free in the
+  unit suite (no `tickets.create`, no `tickets.save`, no seat-map fetch).
+- The integration test that previously proved "confirmation issues tickets"
+  through the read path now proves it through `listTickets` after a PAID
+  webhook — a stronger assertion, since the tickets must already exist.
+
+### Acceptance criteria
+
+| #   | Given                            | When                | Then                                                                 |
+| --- | -------------------------------- | ------------------- | -------------------------------------------------------------------- |
+| A1  | a Booking is charged             | `charge`            | the payment row carries `externalId = cix-{bookingId}`               |
+| A2  | a webhook settles a payment      | `webhook`           | `providerTxnId` is never set to the invoice id                       |
+| A3  | the codebase                     | build               | no `Confirm` RPC, stub, contract or service method remains           |
+| B1  | an unpaid Booking                | customer cancels    | `CANCELLED` with reason `CUSTOMER`                                   |
+| B2  | a pending Booking                | provider declines   | `CANCELLED` with reason `PAYMENT_DECLINED`                           |
+| B3  | a lapsed hold                    | reconcile           | `EXPIRED`, no cancellation reason                                    |
+| C1  | a Booking is confirmed           | webhook PAID        | `booking.confirmed` + `payment.received` published once              |
+| C2  | the same booking                 | sync-payment PAID   | same two events, never duplicated                                    |
+| C3  | RabbitMQ or user-service is down | confirm             | the Booking still confirms; publishing failure is logged, not thrown |
+| D1  | a confirmed Booking              | `GET /bookings/:id` | tickets are read, not created                                        |
+| D2  | a Booking with no tickets        | confirmation        | tickets are issued exactly once by ticket-service                    |
+
+### Phase 7 outcome
+
+All four increments landed. Flow-level result:
+
+- The customer email leg now runs (it never did before).
+- `CANCELLED` says why it happened; `EXPIRED` keeps its own meaning.
+- Payment references no longer lie, and there is exactly one ticket writer.
+- Vocabulary in code, docs and `CONTEXT.md` agree.
+
+Deliberately left out of this phase (candidates, not commitments):
+
+- `providerTxnId` is now always NULL for the Invoices flow. It is kept because
+  the receipt template and contract still reference it, but if no provider ever
+  supplies a settlement id it should be deleted rather than carried.
+- Seats are still freed by deleting stale `booking_seats` rows on the next
+  hold. `REFUNDED` was added to that reaper, but the same mechanism now serves
+  CANCELLED, EXPIRED, REFUNDED and timed-out PENDING — a candidate for a
+  cleaner "release the seat" operation.
+
 ## Open questions (resolved during build)
 
 - UI library — Naive UI components + Tailwind, themed to the CinX board look.

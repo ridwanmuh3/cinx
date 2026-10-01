@@ -186,7 +186,7 @@ function receiptHtml(d: PaymentReceiptData): string {
     <ul>
       <li>Paid: <strong>Rp ${Number(d.amount).toLocaleString('id-ID')}</strong> ${escapeHtml(d.currency)}</li>
       <li>Method: ${escapeHtml(d.method)}</li>
-      <li>Transaction: ${escapeHtml(d.providerTxnId ?? d.providerId)}</li>
+      <li>Transaction: ${escapeHtml(d.providerTxnId ?? d.externalId)}</li>
       <li>Paid at: ${escapeHtml(new Date(d.paidAt).toLocaleString('id-ID'))}</li>
     </ul>
     <p>${escapeHtml(d.movieTitle)} — ${escapeHtml(d.theaterName)} (${escapeHtml(new Date(d.startsAt).toLocaleString('id-ID'))})</p>

@@ -98,7 +98,8 @@ No-overlap rule per theater is app-enforced.
 | showtime_id | uuid | NOT NULL (logical ref → cinema_db.showtimes) |
 | total_amount | bigint | NOT NULL |
 | currency | char(3) | NOT NULL, default `IDR` |
-| status | enum `PENDING` `CONFIRMED` `EXPIRED` `CANCELLED` | NOT NULL, default `PENDING` |
+| status | enum `PENDING` `CONFIRMED` `EXPIRED` `CANCELLED` `REFUND_PENDING` `REFUNDED` | NOT NULL, default `PENDING` |
+| cancellation_reason | varchar(32) | NULL (`CUSTOMER` \| `PAYMENT_DECLINED`); set only when status = `CANCELLED` |
 | expires_at | timestamptz | NOT NULL (hold deadline) |
 | created_at / updated_at | timestamptz | NOT NULL |
 
@@ -124,12 +125,16 @@ UNIQUE `(booking_id, seat_id)`, UNIQUE `(showtime_id, seat_id)` ← hard double-
 |---|---|---|
 | id | uuid | PK |
 | booking_id | FK → bookings | UNIQUE (1:1) |
-| provider_id | varchar(64) | UNIQUE, NOT NULL (e.g. `pay_01J2`) |
-| method | enum `MOCK` | NOT NULL |
-| status | enum `PENDING` `PAID` `FAILED` | NOT NULL, default `PENDING` |
+| external_id | varchar(200) | INDEX, NOT NULL (our reference: `cix-{bookingId}`) |
+| method | enum `XENDIT` | NOT NULL |
+| status | enum `PENDING` `PAID` `FAILED` `REFUND_PENDING` `REFUNDED` | NOT NULL, default `PENDING` |
 | amount | bigint | NOT NULL |
 | currency | char(3) | NOT NULL |
 | paid_at | timestamptz | NULL |
+| invoice_id | varchar(200) | NULL (Xendit invoice) |
+| checkout_url | varchar(1024) | NULL |
+| refund_id | varchar(200) | NULL (Xendit `rfd-…`) |
+| refunded_at | timestamptz | NULL |
 | created_at / updated_at | timestamptz | NOT NULL |
 
 ### tickets
@@ -152,7 +157,32 @@ UNIQUE `(showtime_id, seat_id)`
   not FKs** — referenced tables live in other databases. Seat row/number/category
   and movie/theater names are snapshotted on write (immutable records).
 - Availability is **derived, never stored**: seat X for showtime S =
-  - `BOOKED` → booking_seats(S, X) with booking `CONFIRMED`
+  - `BOOKED` → booking_seats(S, X) with booking `CONFIRMED` or
+    `REFUND_PENDING` (a refund in flight still owns its seats)
   - `HELD` → booking `PENDING` with `expires_at > now` (live Redis lock
     `seat:{showtimeId}:{seatId}` is the authority)
-  - `AVAILABLE` → otherwise
+  - `AVAILABLE` → otherwise (including `REFUNDED`; the freed seat row is
+    reaped on the next hold, which is why the UNIQUE guard still lets it resell)
+- **Tickets have exactly one writer:** they are issued by ticket-service when a
+  Booking is confirmed (`IssueTickets`, idempotent). Reading a booking uses
+  `ListTickets`, which never writes — a read must not create domain state.
+- **Payment references:** `external_id` is *our* reference handed to the
+  provider (`cix-{bookingId}`); `invoice_id` is the provider's invoice id;
+  `provider_txn_id` is the provider's settlement id and stays NULL here,
+  because the Invoices API never returns a separate transaction id — filling
+  it with the invoice id would just duplicate `invoice_id`.
+- **Cancellation vs expiry:** `EXPIRED` means the hold window lapsed — nobody
+  decided anything. `CANCELLED` means someone did, and
+  `cancellation_reason` records who: `CUSTOMER` (they called it off) or
+  `PAYMENT_DECLINED` (the provider refused). Conflating the two loses the
+  difference between funnel abandonment and a payment problem.
+- **Notification** is derived from booking state, never stored: on
+  confirmation ticket-service publishes `booking.confirmed` and
+  `payment.received` to the RabbitMQ fanout exchange, and
+  notification-service turns them into email. Delivery is best-effort — a
+  dead broker must never fail a settled Booking.
+- **Refunds** are a saga compensation, not a status flip: `CONFIRMED` +
+  `cancel` requests a Xendit refund. It settles synchronously to `REFUNDED`
+  (tickets voided, seats resellable) or stays `REFUND_PENDING` until the
+  reconcile cron polls it; a provider `FAILED` reverts the booking to
+  `CONFIRMED`, because the money never moved.

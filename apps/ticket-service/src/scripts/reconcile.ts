@@ -9,6 +9,10 @@ import { Ticket } from '../bookings/ticket.entity';
 /**
  * Standalone reconciliation: expire stale PENDING bookings. Redis locks are
  * auto-released by their TTL, so only the DB rows need flipping to EXPIRED.
+ *
+ * In-flight refunds (REFUND_PENDING) are settled by the same logic inside the
+ * running service's `reconcileRefunds`, which has the Xendit client wired; use
+ * the service cron (every minute) for those rather than this script.
  */
 async function main() {
   const ds = new DataSource({

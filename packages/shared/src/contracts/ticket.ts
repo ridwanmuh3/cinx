@@ -8,16 +8,39 @@ export const TicketPatterns = {
   BOOKING_LIST: 'List',
   BOOKING_AVAILABILITY: 'Availability',
   PAYMENT_CHARGE: 'Charge',
-  PAYMENT_CONFIRM: 'Confirm',
   PAYMENT_WEBHOOK: 'Webhook',
   PAYMENT_SYNC: 'SyncPaymentStatus',
-  TICKET_CREATE: 'CreateTickets',
+  TICKET_ISSUE: 'IssueTickets',
+  TICKET_LIST: 'ListTickets',
   TICKET_GET_BY_CODE: 'GetTicketByCode',
 } as const;
 
-export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
+export type BookingStatus =
+  | 'PENDING'
+  | 'CONFIRMED'
+  | 'EXPIRED'
+  | 'CANCELLED'
+  /** A refund was requested from the provider but has not settled yet. */
+  | 'REFUND_PENDING'
+  /** The provider returned the money; the booking is terminal. */
+  | 'REFUNDED';
 
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED';
+/** Why a Booking ended up CANCELLED. `EXPIRED` holds are not cancellations. */
+export type CancellationReason = 'CUSTOMER' | 'PAYMENT_DECLINED';
+
+export type PaymentStatus =
+  'PENDING' | 'PAID' | 'FAILED' | 'REFUND_PENDING' | 'REFUNDED';
+
+export type XenditRefundStatus = 'PENDING' | 'SUCCEEDED' | 'FAILED';
+
+/** Response shape of Xendit's Refunds API (POST/GET /refunds). */
+export interface XenditRefund {
+  id: string;
+  invoice_id?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  status: string;
+}
 
 export type PaymentMethod = 'XENDIT';
 
@@ -59,7 +82,8 @@ export interface PaymentChargeRequest {
 }
 
 export interface PaymentChargeResponse {
-  providerId: string;
+  /** Our reference for the booking, as handed to the provider. */
+  externalId: string;
   paid: boolean;
   providerTxnId: string | null;
   paidAt: string | null;
@@ -67,15 +91,6 @@ export interface PaymentChargeResponse {
   checkoutUrl: string | null;
   invoiceId: string | null;
   method: PaymentMethod;
-}
-
-export interface PaymentConfirmRequest {
-  bookingId: string;
-  userId: string;
-  paid: boolean;
-  providerId: string;
-  paidAt?: string | null;
-  receipt?: string | null;
 }
 
 export interface PaymentWebhookRequest {
@@ -147,7 +162,7 @@ export interface HoldResponse {
 }
 
 export interface PaymentSummary {
-  providerId: string;
+  externalId: string;
   method: PaymentMethod;
   status: PaymentStatus;
   checkoutUrl: string | null;
@@ -170,6 +185,8 @@ export interface BookingDto {
   totalAmount: number;
   currency: 'IDR';
   status: BookingStatus;
+  /** Set only when `status` is `CANCELLED`; null otherwise. */
+  cancellationReason: CancellationReason | null;
   expiresAt: string;
   createdAt: string;
   updatedAt: string;

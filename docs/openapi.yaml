@@ -18,7 +18,11 @@ info:
        `POST /payments/xendit/webhook` (header `x-callback-token`), which
        confirms the booking and issues tickets. If the hold has expired the
        API returns `410 Gone` and the seats are released.
-    4. `POST /bookings/{id}/cancel` releases the seats (only while PENDING).
+    4. `POST /bookings/{id}/cancel` compensates the saga. While PENDING it
+       releases the seats immediately. While CONFIRMED it requests a refund
+       from Xendit: the booking becomes `REFUNDED` when the provider settles
+       synchronously, otherwise `REFUND_PENDING` until reconciliation
+       finishes it (a failed refund reverts the booking to `CONFIRMED`).
 
     ## Roles
     - `admin` — full access to catalog management (movies, theaters, showtimes).
@@ -926,13 +930,15 @@ paths:
       - $ref: "#/components/parameters/Id"
     post:
       tags: [Bookings]
-      summary: Cancel a pending booking and release its seats
+      summary: Cancel a booking, releasing seats or refunding a paid booking
       operationId: cancelBooking
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Booking cancelled
+          description: |
+            Booking `CANCELLED` (was PENDING) or refunded (`REFUNDED` /
+            `REFUND_PENDING`, was CONFIRMED).
           content:
             application/json:
               schema:
@@ -956,7 +962,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Booking is not PENDING (cannot cancel CONFIRMED/EXPIRED)
+          description: |
+            Booking is already terminal (`EXPIRED`, `CANCELLED`, `REFUNDED`,
+            `REFUND_PENDING`), or a paid booking has no refundable payment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The refund provider is unavailable; nothing was changed
           content:
             application/json:
               schema:
@@ -1587,11 +1601,22 @@ components:
 
     BookingStatus:
       type: string
-      enum: [PENDING, CONFIRMED, EXPIRED, CANCELLED]
+      description: |
+        `REFUND_PENDING` means a refund was requested but has not settled;
+        the seats stay held and the tickets stay valid until it does.
+        `REFUNDED` is terminal — the money went back and the tickets are void.
+      enum: [PENDING, CONFIRMED, EXPIRED, CANCELLED, REFUND_PENDING, REFUNDED]
 
     PaymentStatus:
       type: string
-      enum: [PENDING, PAID, FAILED]
+      enum: [PENDING, PAID, FAILED, REFUND_PENDING, REFUNDED]
+
+    CancellationReason:
+      type: string
+      description: |
+        Why a booking is `CANCELLED`. A lapsed hold is `EXPIRED`, never
+        cancelled, so it carries no reason.
+      enum: [CUSTOMER, PAYMENT_DECLINED]
 
     HoldRequest:
       type: object
@@ -1642,6 +1667,14 @@ components:
         paidAt:
           type: [string, "null"]
           format: date-time
+        refundId:
+          type: [string, "null"]
+          description: Provider refund id (Xendit `rfd-…`), once a refund is requested
+          example: rfd-1fdaf346-dd2e-4b6c-b938-124c7167a822
+        refundedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the provider settled the refund
 
     Ticket:
       type: object
@@ -1721,6 +1754,13 @@ components:
           $ref: "#/components/schemas/Money"
         status:
           $ref: "#/components/schemas/BookingStatus"
+        cancellationReason:
+          allOf:
+            - $ref: "#/components/schemas/CancellationReason"
+          nullable: true
+          description: |
+            Present only when `status` is `CANCELLED`; tells customer
+            abandonment apart from a declined payment.
         expiresAt:
           type: string
           format: date-time

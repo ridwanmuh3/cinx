@@ -31,7 +31,6 @@ import {
   BookingAvailabilityResponse,
   PaymentChargeRequest,
   PaymentChargeResponse,
-  PaymentConfirmRequest,
   PaymentWebhookRequest,
   PaymentSyncRequest,
   TicketList,
@@ -81,9 +80,9 @@ export interface TicketServiceStub {
     req: BookingAvailabilityRequest,
   ): Observable<BookingAvailabilityResponse>;
   Charge(req: PaymentChargeRequest): Observable<PaymentChargeResponse>;
-  Confirm(req: PaymentConfirmRequest): Observable<BookingDto>;
   Webhook(req: PaymentWebhookRequest): Observable<Empty>;
   SyncPaymentStatus(req: PaymentSyncRequest): Observable<BookingDto>;
-  CreateTickets(req: BookingGetRequest): Observable<TicketList>;
+  IssueTickets(req: BookingGetRequest): Observable<TicketList>;
+  ListTickets(req: BookingGetRequest): Observable<TicketList>;
   GetTicketByCode(req: { code: string }): Observable<TicketLookupDto>;
 }

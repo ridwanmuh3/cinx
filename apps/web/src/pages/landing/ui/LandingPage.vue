@@ -291,7 +291,7 @@ const faqs = [
   },
   {
     q: 'Can I cancel a booking?',
-    a: 'Pending bookings can be cancelled from My Bookings, which releases the seats. Confirmed bookings show your TKT-XXXXXX ticket codes.',
+    a: 'Yes. An unpaid hold is cancelled from My Bookings, which releases the seats immediately. A paid booking can be cancelled too — we refund the full amount to your original payment method, and your tickets stop working once the refund settles.',
   },
   {
     q: 'Does CinX work on mobile?',

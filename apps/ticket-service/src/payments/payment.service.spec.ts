@@ -46,11 +46,16 @@ describe('PaymentService (Xendit)', () => {
         'b1',
         'https://evil.example/bookings/confirm/b1?src=x&utm=1',
       );
-      expect(result).toBe('http://localhost:5173/bookings/confirm/b1?src=x&utm=1');
+      expect(result).toBe(
+        'http://localhost:5173/bookings/confirm/b1?src=x&utm=1',
+      );
     });
 
     it('rejects protocol-relative host injection', () => {
-      const result = service.successRedirectUrl('b1', '//evil.example/bookings/confirm/b1');
+      const result = service.successRedirectUrl(
+        'b1',
+        '//evil.example/bookings/confirm/b1',
+      );
       expect(result).toBe('http://localhost:5173/bookings/confirm/b1');
       expect(result).not.toContain('evil.example');
     });
@@ -67,9 +72,12 @@ describe('PaymentService (Xendit)', () => {
     it('prefers XENDIT_RETURN_URL over EMAIL_BASE_URL as the redirect origin', () => {
       process.env.XENDIT_RETURN_URL = 'https://cinx.example.com';
       jest.resetModules();
-      const {
-        PaymentService: FreshService,
-      } = require('./payment.service') as typeof import('./payment.service');
+      // A fresh module instance is required to re-read the env after
+      // resetModules, which a static import cannot do.
+      /* eslint-disable @typescript-eslint/no-require-imports */
+      const { PaymentService: FreshService } =
+        require('./payment.service') as typeof import('./payment.service');
+      /* eslint-enable @typescript-eslint/no-require-imports */
       const fresh = new FreshService(client);
       try {
         expect(fresh.successRedirectUrl('b2')).toBe(

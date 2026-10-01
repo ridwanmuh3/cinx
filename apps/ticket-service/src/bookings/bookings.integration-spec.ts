@@ -237,8 +237,8 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
     });
   });
 
-  describe('3. Confirm-after-expiry (410 Gone)', () => {
-    it('rejects confirmation with 410 when Redis lock was lost (TTL / eviction)', async () => {
+  describe('3. Late payment after the hold lapsed (410 Gone)', () => {
+    it('rejects a PAID webhook with 410 when Redis lock was lost (TTL / eviction)', async () => {
       const showtimeId = mockSeatMap.showtimeId;
       const seatId = mockSeatMap.seats[0].id;
       const userId = '00000000-0000-0000-0000-000000000033';
@@ -256,11 +256,14 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
 
       let error: unknown;
       try {
-        await bookingsService.confirm({
-          bookingId: hold.bookingId,
-          userId,
-          paid: true,
-          providerId: hold.payment.providerId,
+        await bookingsService.webhook({
+          signature: 'tok',
+          body: JSON.stringify({
+            id: 'inv_late_1',
+            external_id: `cix-${hold.bookingId}`,
+            status: 'PAID',
+            paid_at: new Date().toISOString(),
+          }),
         });
       } catch (err) {
         error = err;
@@ -276,7 +279,7 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
       expect(bookingInDb?.status).toBe('EXPIRED');
     });
 
-    it('rejects confirmation with 410 when booking status is already EXPIRED in DB', async () => {
+    it('rejects a PAID webhook with 410 when booking status is already EXPIRED in DB', async () => {
       const showtimeId = mockSeatMap.showtimeId;
       const seatId = mockSeatMap.seats[1].id;
       const userId = '00000000-0000-0000-0000-000000000044';
@@ -293,11 +296,14 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
 
       let error: unknown;
       try {
-        await bookingsService.confirm({
-          bookingId: hold.bookingId,
-          userId,
-          paid: true,
-          providerId: hold.payment.providerId,
+        await bookingsService.webhook({
+          signature: 'tok',
+          body: JSON.stringify({
+            id: 'inv_late_2',
+            external_id: `cix-${hold.bookingId}`,
+            status: 'PAID',
+            paid_at: new Date().toISOString(),
+          }),
         });
       } catch (err) {
         error = err;
@@ -305,6 +311,7 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
 
       expect(error).toBeInstanceOf(RpcException);
       expect(rpcStatus(error)).toBe(410);
+      expect(rpcMessage(error)).toContain('expired');
     });
   });
 
@@ -397,7 +404,7 @@ describe('Bookings Integration (Real Postgres + Redis)', () => {
         .findOneBy({ id: hold.bookingId });
       expect(bookingInDb?.status).toBe('CONFIRMED');
 
-      const tickets = await bookingsService.createTickets({
+      const tickets = await bookingsService.listTickets({
         id: hold.bookingId,
         userId,
       });

@@ -13,7 +13,6 @@ import {
   PaginatedBookings,
   PaymentChargeRequest,
   PaymentChargeResponse,
-  PaymentConfirmRequest,
   PaymentSyncRequest,
   PaymentWebhookRequest,
   TicketByCodeRequest,
@@ -59,11 +58,6 @@ export class BookingsController {
     return this.bookings.charge(dto);
   }
 
-  @GrpcMethod('TicketService', TicketPatterns.PAYMENT_CONFIRM)
-  confirm(@Payload() dto: PaymentConfirmRequest): Promise<BookingDto> {
-    return this.bookings.confirm(dto);
-  }
-
   @GrpcMethod('TicketService', TicketPatterns.PAYMENT_WEBHOOK)
   webhook(@Payload() dto: PaymentWebhookRequest): Promise<Empty> {
     return this.bookings.webhook(dto);
@@ -74,9 +68,14 @@ export class BookingsController {
     return this.bookings.syncPaymentStatus(dto);
   }
 
-  @GrpcMethod('TicketService', TicketPatterns.TICKET_CREATE)
-  createTickets(@Payload() dto: BookingGetRequest): Promise<TicketList> {
-    return this.bookings.createTickets(dto);
+  @GrpcMethod('TicketService', TicketPatterns.TICKET_ISSUE)
+  issueTickets(@Payload() dto: BookingGetRequest): Promise<TicketList> {
+    return this.bookings.issueTickets(dto);
+  }
+
+  @GrpcMethod('TicketService', TicketPatterns.TICKET_LIST)
+  listTickets(@Payload() dto: BookingGetRequest): Promise<TicketList> {
+    return this.bookings.listTickets(dto);
   }
 
   @GrpcMethod('TicketService', TicketPatterns.TICKET_GET_BY_CODE)

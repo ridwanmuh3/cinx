@@ -46,7 +46,8 @@ export interface PaymentReceiptData {
   bookingId: string;
   amount: number;
   currency: 'IDR';
-  providerId: string;
+  /** Our reference for the booking, as handed to the provider. */
+  externalId: string;
   providerTxnId: string | null;
   paidAt: string;
   method: string;

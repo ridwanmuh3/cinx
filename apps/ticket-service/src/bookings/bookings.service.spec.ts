@@ -1,19 +1,17 @@
 import { mock, MockProxy } from 'jest-mock-extended';
 import { DeepPartial, Repository } from 'typeorm';
 import { RpcException } from '@nestjs/microservices';
-import {
-  HoldSeatsRequest,
-  PaymentConfirmRequest,
-  ShowtimeSeatMap,
-} from '@ticketing/shared';
+import { HoldSeatsRequest, ShowtimeSeatMap } from '@ticketing/shared';
 import { BookingsService } from './bookings.service';
 import { Booking } from './booking.entity';
 import { BookingSeat } from './booking-seat.entity';
 import { Payment } from './payment.entity';
 import { Ticket } from './ticket.entity';
 import { SeatAvailabilityService } from '../cinema/seat-availability.service';
+import { BookingEventPublisher } from '../events/booking-event.publisher';
 import { LockHandle, SeatLockService } from '../lock/lock.module';
 import { PaymentService } from '../payments/payment.service';
+import { CustomerDirectoryService } from '../user/customer-directory.service';
 
 const HOLD_TTL_MS = 5 * 60_000;
 
@@ -94,6 +92,8 @@ describe('BookingsService', () => {
   const seatAvailability = mock<SeatAvailabilityService>();
   const seatLock = mock<SeatLockService>();
   const paymentService = mock<PaymentService>();
+  const events = mock<BookingEventPublisher>();
+  const customers = mock<CustomerDirectoryService>();
   const redis = { exists: jest.fn() } as unknown as import('ioredis').default;
 
   let service: BookingsService;
@@ -103,13 +103,6 @@ describe('BookingsService', () => {
     showtimeId: 'st1',
     seatIds: ['seat1', 'seat2'],
   };
-  const confirmRequest: PaymentConfirmRequest = {
-    bookingId: 'b1',
-    userId: 'u1',
-    paid: true,
-    providerId: 'mop_x',
-  };
-
   beforeEach(() => {
     jest.resetAllMocks();
     service = new BookingsService(
@@ -120,11 +113,18 @@ describe('BookingsService', () => {
       seatAvailability,
       seatLock,
       paymentService,
+      events,
+      customers,
       redis,
     );
     paymentService.externalIdFor.mockImplementation(
       (bookingId: string) => `cix-${bookingId}`,
     );
+    customers.contactFor.mockResolvedValue({
+      id: 'u1',
+      email: 'u1@example.com',
+      name: 'U One',
+    });
     seatLock.lockKey.mockImplementation(
       (showtimeId: string, seatId: string) => `seat:${showtimeId}:${seatId}`,
     );
@@ -178,7 +178,7 @@ describe('BookingsService', () => {
           totalAmount: 100000,
           currency: 'IDR',
           payment: {
-            providerId: 'cix-b1',
+            externalId: 'cix-b1',
             method: 'XENDIT',
             status: 'PENDING',
             checkoutUrl: null,
@@ -317,12 +317,298 @@ describe('BookingsService', () => {
 
       expect(result.status).toBe('CANCELLED');
       expect(handle.release).toHaveBeenCalled();
+      // 'CANCELLED' alone cannot tell funnel abandonment from a declined
+      // payment, so the reason is recorded alongside it.
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'CANCELLED',
+          cancellationReason: 'CUSTOMER',
+        }),
+      );
     });
 
-    it('rejects with 409 when the booking is not PENDING', async () => {
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
+    it('rejects with 409 when the booking is not cancellable', async () => {
+      bookings.findOne.mockResolvedValue(makeBooking({ status: 'EXPIRED' }));
 
       await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 409);
+    });
+
+    it('reclaims seat rows left by a REFUNDED booking on the next hold', async () => {
+      seatAvailability.validateSeats.mockResolvedValue({
+        seats: seatMap.seats,
+        seatMap,
+      });
+      seatLock.hold.mockResolvedValue(makeHandle());
+      bookings.save.mockResolvedValue(makeBooking());
+      bookingSeats.create.mockImplementation((s) => s as BookingSeat);
+      bookingSeats.save.mockResolvedValue([] as never);
+      payments.create.mockImplementation((p) => p as Payment);
+      payments.save.mockResolvedValue({} as Payment);
+
+      await service.hold(holdRequest);
+
+      expect(bookingSeats.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            booking: expect.arrayContaining([{ status: 'REFUNDED' }]),
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('cancel — paid (CONFIRMED) booking refund', () => {
+    function confirmedBooking(overrides?: Partial<Booking>): Booking {
+      return makeBooking({ status: 'CONFIRMED', ...overrides });
+    }
+
+    function paidPayment(overrides?: Partial<Payment>): Payment {
+      return {
+        id: 'p1',
+        externalId: 'cix-b1',
+        invoiceId: 'inv_123',
+        status: 'PAID',
+        amount: 100000,
+        currency: 'IDR',
+        refundId: null,
+        refundedAt: null,
+        booking: confirmedBooking(),
+        ...overrides,
+      } as Payment;
+    }
+
+    it('issues a refund and marks the booking REFUNDED when Xendit succeeds', async () => {
+      bookings.findOne.mockResolvedValue({ ...confirmedBooking(), seats: [] });
+      payments.findOne.mockResolvedValue(paidPayment());
+      paymentService.createRefundForPayment.mockResolvedValue({
+        refundId: 'rfd_1',
+        status: 'SUCCEEDED',
+      });
+      bookings.save.mockImplementation((b) => Promise.resolve(b as Booking));
+      payments.save.mockImplementation((p) => Promise.resolve(p as Payment));
+      tickets.find.mockResolvedValue([{ id: 't1' } as Ticket]);
+      bookings.findOneOrFail.mockResolvedValue(
+        confirmedBooking({ status: 'REFUNDED', seats: [] }),
+      );
+
+      const result = await service.cancel({ id: 'b1', userId: 'u1' });
+
+      expect(paymentService.createRefundForPayment).toHaveBeenCalledWith(
+        expect.objectContaining({ invoiceId: 'inv_123', amount: 100000 }),
+      );
+      expect(payments.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'REFUNDED', refundId: 'rfd_1' }),
+      );
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'REFUNDED' }),
+      );
+      expect(tickets.delete).toHaveBeenCalledWith(['t1']);
+      expect(result.status).toBe('REFUNDED');
+    });
+
+    it('marks the booking REFUND_PENDING when Xendit accepts but has not settled', async () => {
+      bookings.findOne.mockResolvedValue({ ...confirmedBooking(), seats: [] });
+      payments.findOne.mockResolvedValue(paidPayment());
+      paymentService.createRefundForPayment.mockResolvedValue({
+        refundId: 'rfd_2',
+        status: 'PENDING',
+      });
+      bookings.save.mockImplementation((b) => Promise.resolve(b as Booking));
+      payments.save.mockImplementation((p) => Promise.resolve(p as Payment));
+      bookings.findOneOrFail.mockResolvedValue(
+        confirmedBooking({ status: 'REFUND_PENDING', seats: [] }),
+      );
+
+      const result = await service.cancel({ id: 'b1', userId: 'u1' });
+
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'REFUND_PENDING' }),
+      );
+      expect(payments.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'REFUND_PENDING',
+          refundId: 'rfd_2',
+        }),
+      );
+      // Tickets stay valid until the money is actually returned.
+      expect(tickets.delete).not.toHaveBeenCalled();
+      expect(result.status).toBe('REFUND_PENDING');
+    });
+
+    it('rejects with 409 when there is no paid payment to refund', async () => {
+      bookings.findOne.mockResolvedValue(confirmedBooking());
+      payments.findOne.mockResolvedValue(null);
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 409);
+      expect(paymentService.createRefundForPayment).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 409 when the paid payment has no invoice id', async () => {
+      bookings.findOne.mockResolvedValue(confirmedBooking());
+      payments.findOne.mockResolvedValue(paidPayment({ invoiceId: null }));
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 409);
+      expect(paymentService.createRefundForPayment).not.toHaveBeenCalled();
+    });
+
+    it('keeps the booking CONFIRMED and returns 502 when the provider fails', async () => {
+      bookings.findOne.mockResolvedValue(confirmedBooking());
+      payments.findOne.mockResolvedValue(paidPayment());
+      paymentService.createRefundForPayment.mockRejectedValue(
+        new Error('xendit down'),
+      );
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 502);
+      expect(bookings.save).not.toHaveBeenCalled();
+      expect(payments.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 409 when a refund is already pending', async () => {
+      bookings.findOne.mockResolvedValue(
+        makeBooking({ status: 'REFUND_PENDING' }),
+      );
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 409);
+      expect(paymentService.createRefundForPayment).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 409 when the booking is already refunded', async () => {
+      bookings.findOne.mockResolvedValue(makeBooking({ status: 'REFUNDED' }));
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 409);
+      expect(paymentService.createRefundForPayment).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 404 when the booking belongs to another user', async () => {
+      bookings.findOne.mockResolvedValue(
+        makeBooking({ status: 'CONFIRMED', userId: 'other' }),
+      );
+
+      await expectStatus(service.cancel({ id: 'b1', userId: 'u1' }), 404);
+    });
+  });
+
+  describe('availability', () => {
+    function seatRow(seatId: string, booking: Booking): BookingSeat {
+      return {
+        id: `bs-${seatId}`,
+        booking,
+        showtimeId: 'st1',
+        seatId,
+        rowLabel: 'A',
+        seatNumber: 1,
+        category: 'REGULAR',
+        priceAmount: 50000,
+        priceCurrency: 'IDR',
+      };
+    }
+
+    it('keeps REFUND_PENDING seats BOOKED and frees REFUNDED seats', async () => {
+      const pending = makeBooking({ id: 'b1', status: 'REFUND_PENDING' });
+      const refunded = makeBooking({ id: 'b2', status: 'REFUNDED' });
+      bookings.find.mockResolvedValue([
+        { ...pending, seats: [seatRow('seat1', pending)] },
+        { ...refunded, seats: [seatRow('seat2', refunded)] },
+      ]);
+
+      const result = await service.availability({ showtimeId: 'st1' });
+
+      expect(result.seats).toEqual([{ seatId: 'seat1', status: 'BOOKED' }]);
+    });
+
+    it('reports live PENDING holds as HELD', async () => {
+      const held = makeBooking({ id: 'b1', status: 'PENDING' });
+      bookings.find.mockResolvedValue([
+        { ...held, seats: [seatRow('seat1', held)] },
+      ]);
+
+      const result = await service.availability({ showtimeId: 'st1' });
+
+      expect(result.seats).toEqual([{ seatId: 'seat1', status: 'HELD' }]);
+    });
+  });
+
+  describe('reconcileRefunds', () => {
+    function refundPendingBooking(): Booking {
+      return makeBooking({ id: 'b1', status: 'REFUND_PENDING' });
+    }
+
+    function refundPendingPayment(): Payment {
+      return {
+        id: 'p1',
+        externalId: 'cix-b1',
+        invoiceId: 'inv_123',
+        status: 'REFUND_PENDING',
+        amount: 100000,
+        currency: 'IDR',
+        refundId: 'rfd_1',
+        refundedAt: null,
+        booking: refundPendingBooking(),
+      } as unknown as Payment;
+    }
+
+    it('finalizes bookings whose refund succeeded', async () => {
+      bookings.find.mockResolvedValue([refundPendingBooking()]);
+      payments.findOne.mockResolvedValue(refundPendingPayment());
+      paymentService.getRefundStatus.mockResolvedValue('SUCCEEDED');
+      bookings.save.mockImplementation((b) => Promise.resolve(b as Booking));
+      payments.save.mockImplementation((p) => Promise.resolve(p as Payment));
+      tickets.find.mockResolvedValue([{ id: 't1' } as Ticket]);
+
+      const result = await service.reconcileRefunds();
+
+      expect(result.finalized).toEqual(['b1']);
+      expect(result.reverted).toEqual([]);
+      expect(paymentService.getRefundStatus).toHaveBeenCalledWith('rfd_1');
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'REFUNDED' }),
+      );
+      expect(tickets.delete).toHaveBeenCalledWith(['t1']);
+    });
+
+    it('reverts a booking to CONFIRMED when the refund failed', async () => {
+      bookings.find.mockResolvedValue([refundPendingBooking()]);
+      payments.findOne.mockResolvedValue(refundPendingPayment());
+      paymentService.getRefundStatus.mockResolvedValue('FAILED');
+      bookings.save.mockImplementation((b) => Promise.resolve(b as Booking));
+      payments.save.mockImplementation((p) => Promise.resolve(p as Payment));
+
+      const result = await service.reconcileRefunds();
+
+      expect(result.finalized).toEqual([]);
+      expect(result.reverted).toEqual(['b1']);
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'CONFIRMED' }),
+      );
+      expect(payments.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'PAID' }),
+      );
+      expect(tickets.delete).not.toHaveBeenCalled();
+    });
+
+    it('leaves still-PENDING refunds untouched', async () => {
+      bookings.find.mockResolvedValue([refundPendingBooking()]);
+      payments.findOne.mockResolvedValue(refundPendingPayment());
+      paymentService.getRefundStatus.mockResolvedValue('PENDING');
+
+      const result = await service.reconcileRefunds();
+
+      expect(result).toEqual({ finalized: [], reverted: [] });
+      expect(bookings.save).not.toHaveBeenCalled();
+      expect(payments.save).not.toHaveBeenCalled();
+    });
+
+    it('skips a booking whose refund cannot be looked up', async () => {
+      bookings.find.mockResolvedValue([refundPendingBooking()]);
+      payments.findOne.mockResolvedValue(refundPendingPayment());
+      paymentService.getRefundStatus.mockRejectedValue(
+        new Error('provider down'),
+      );
+
+      const result = await service.reconcileRefunds();
+
+      expect(result).toEqual({ finalized: [], reverted: [] });
+      expect(bookings.save).not.toHaveBeenCalled();
     });
   });
 
@@ -375,135 +661,13 @@ describe('BookingsService', () => {
     });
   });
 
-  describe('confirm', () => {
-    async function holdFirst(): Promise<MockProxy<LockHandle>> {
-      const saved = makeBooking();
-      const handle = makeHandle();
-      seatAvailability.validateSeats.mockResolvedValue({
-        seats: seatMap.seats,
-        seatMap,
-      });
-      seatLock.hold.mockResolvedValue(handle);
-      bookings.save.mockResolvedValue(saved);
-      bookingSeats.create.mockImplementation((s) => s as BookingSeat);
-      bookingSeats.save.mockResolvedValue([] as never);
-      payments.create.mockImplementation((p) => p as Payment);
-      payments.save.mockResolvedValue({} as Payment);
-      bookingSeats.find.mockResolvedValue([]);
-      await service.hold(holdRequest);
-      return handle;
-    }
-
-    it('extends the lock, marks PAID/CONFIRMED and issues tickets', async () => {
-      const handle = await holdFirst();
-
-      const confirmed = makeBooking({ status: 'CONFIRMED' });
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'PENDING' }));
-      bookings.save.mockResolvedValue(confirmed);
-      bookings.findOneOrFail.mockResolvedValue(
-        makeBooking({ status: 'CONFIRMED', seats: [] }),
-      );
-      payments.findOne.mockResolvedValue({
-        id: 'p1',
-        status: 'PENDING',
-      } as Payment);
-      payments.save.mockResolvedValue({} as Payment);
-      tickets.find.mockResolvedValue([]);
-      seatsForTickets();
-      ticketSaveMock();
-
-      const result = await service.confirm(confirmRequest);
-
-      expect(handle.extend).toHaveBeenCalledWith(HOLD_TTL_MS);
-      expect(payments.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'p1',
-          status: 'PAID',
-          providerTxnId: 'mop_x',
-        }),
-      );
-      expect(bookings.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'CONFIRMED' }),
-      );
-      expect(tickets.create).toHaveBeenCalledTimes(2);
-      const created = tickets.create.mock.calls.map(
-        (c) => c[0] as { code: string },
-      );
-      expect(created.every((t) => t.code.startsWith('TKT-'))).toBe(true);
-      expect(handle.release).toHaveBeenCalled();
-      expect(result.status).toBe('CONFIRMED');
-    });
-
-    it('marks FAILED/CANCELLED and releases locks when payment did not go through', async () => {
-      const handle = await holdFirst();
-
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'PENDING' }));
-      bookings.save.mockResolvedValue(makeBooking({ status: 'CANCELLED' }));
-      bookings.findOneOrFail.mockResolvedValue(
-        makeBooking({ status: 'CANCELLED', seats: [] }),
-      );
-      payments.findOne.mockResolvedValue({
-        id: 'p1',
-        status: 'PENDING',
-      } as Payment);
-      payments.save.mockResolvedValue({} as Payment);
-
-      const result = await service.confirm({
-        ...confirmRequest,
-        paid: false,
-      });
-
-      expect(payments.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'p1', status: 'FAILED' }),
-      );
-      expect(bookings.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'CANCELLED' }),
-      );
-      expect(tickets.create).not.toHaveBeenCalled();
-      expect(handle.release).toHaveBeenCalled();
-      expect(result.status).toBe('CANCELLED');
-    });
-
-    it('rejects with 410 when the booking already expired', async () => {
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'EXPIRED' }));
-
-      await expectStatus(service.confirm(confirmRequest), 410);
-    });
-
-    it('rejects with 410 and expires the booking when the lock was lost', async () => {
-      const handle = await holdFirst();
-      handle.extend.mockRejectedValue(new Error('lock lost'));
-
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'PENDING' }));
-      bookings.save.mockResolvedValue(makeBooking({ status: 'EXPIRED' }));
-
-      await expectStatus(service.confirm(confirmRequest), 410);
-
-      expect(bookings.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'EXPIRED' }),
-      );
-    });
-
-    it('is idempotent for already CONFIRMED bookings', async () => {
-      bookings.findOne.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
-      bookings.findOneOrFail.mockResolvedValue(
-        makeBooking({ status: 'CONFIRMED', seats: [] }),
-      );
-
-      const result = await service.confirm(confirmRequest);
-
-      expect(result.status).toBe('CONFIRMED');
-      expect(bookings.save).not.toHaveBeenCalled();
-    });
-  });
-
   describe('charge (Xendit)', () => {
     it('creates a hosted invoice and returns its checkout URL', async () => {
       const booking = makeBooking({ status: 'PENDING' });
       bookings.findOne.mockResolvedValue(booking);
       payments.findOne.mockResolvedValue({
         id: 'p1',
-        providerId: 'cix-b1',
+        externalId: 'cix-b1',
         status: 'PENDING',
         invoiceId: null,
         checkoutUrl: null,
@@ -536,7 +700,7 @@ describe('BookingsService', () => {
       bookings.findOne.mockResolvedValue(booking);
       payments.findOne.mockResolvedValue({
         id: 'p1',
-        providerId: 'cix-b1',
+        externalId: 'cix-b1',
         status: 'PENDING',
         invoiceId: 'inv_live',
         checkoutUrl: 'https://checkout.xendit.co/inv_live',
@@ -572,7 +736,7 @@ describe('BookingsService', () => {
     function pendingInvoice(): Payment {
       return {
         id: 'p1',
-        providerId: 'cix-b1',
+        externalId: 'cix-b1',
         status: 'PENDING',
         invoiceId: 'inv_live',
         checkoutUrl: 'https://checkout.xendit.co/inv_live',
@@ -618,6 +782,75 @@ describe('BookingsService', () => {
       expect(result.status).toBe('CONFIRMED');
     });
 
+    it('publishes the confirmation and receipt events on PAID', async () => {
+      setupPending();
+      paymentService.getInvoiceStatus.mockResolvedValue('PAID');
+      bookings.save.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
+      bookings.findOneOrFail.mockResolvedValue(
+        makeBooking({ status: 'CONFIRMED', seats: [] }),
+      );
+      tickets.find.mockResolvedValue([]);
+      seatsForTickets();
+      ticketSaveMock();
+      (redis.exists as unknown as jest.Mock).mockResolvedValue(2);
+
+      await service.syncPaymentStatus({ bookingId: 'b1', userId: 'u1' });
+
+      expect(events.bookingConfirmed).toHaveBeenCalledTimes(1);
+      expect(events.paymentReceived).toHaveBeenCalledTimes(1);
+      expect(events.bookingConfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bookingId: 'b1',
+          recipient: { to: 'u1@example.com', name: 'U One' },
+          movieTitle: seatMap.movieTitle,
+        }),
+      );
+    });
+
+    it('still confirms the booking when publishing the events fails', async () => {
+      setupPending();
+      paymentService.getInvoiceStatus.mockResolvedValue('PAID');
+      bookings.save.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
+      bookings.findOneOrFail.mockResolvedValue(
+        makeBooking({ status: 'CONFIRMED', seats: [] }),
+      );
+      tickets.find.mockResolvedValue([]);
+      seatsForTickets();
+      ticketSaveMock();
+      (redis.exists as unknown as jest.Mock).mockResolvedValue(2);
+      events.bookingConfirmed.mockRejectedValue(new Error('broker down'));
+
+      // Email is best-effort: a dead broker must never roll back a payment.
+      const result = await service.syncPaymentStatus({
+        bookingId: 'b1',
+        userId: 'u1',
+      });
+
+      expect(result.status).toBe('CONFIRMED');
+      expect(bookings.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'CONFIRMED' }),
+      );
+    });
+
+    it('skips publishing when the customer cannot be resolved', async () => {
+      setupPending();
+      paymentService.getInvoiceStatus.mockResolvedValue('PAID');
+      bookings.save.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
+      bookings.findOneOrFail.mockResolvedValue(
+        makeBooking({ status: 'CONFIRMED', seats: [] }),
+      );
+      tickets.find.mockResolvedValue([]);
+      seatsForTickets();
+      ticketSaveMock();
+      (redis.exists as unknown as jest.Mock).mockResolvedValue(2);
+      customers.contactFor.mockResolvedValue(null);
+
+      await service.syncPaymentStatus({ bookingId: 'b1', userId: 'u1' });
+
+      expect(events.bookingConfirmed).not.toHaveBeenCalled();
+      expect(events.paymentReceived).not.toHaveBeenCalled();
+    });
+
     it('cancels the booking when Xendit reports the invoice EXPIRED', async () => {
       setupPending();
       paymentService.getInvoiceStatus.mockResolvedValue('EXPIRED');
@@ -635,7 +868,10 @@ describe('BookingsService', () => {
         expect.objectContaining({ id: 'p1', status: 'FAILED' }),
       );
       expect(bookings.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'CANCELLED' }),
+        expect.objectContaining({
+          status: 'CANCELLED',
+          cancellationReason: 'PAYMENT_DECLINED',
+        }),
       );
       expect(tickets.create).not.toHaveBeenCalled();
       expect(result.status).toBe('CANCELLED');
@@ -725,7 +961,7 @@ describe('BookingsService', () => {
     function paymentRow(status = 'PENDING'): Payment {
       return {
         id: 'p1',
-        providerId: 'cix-b1',
+        externalId: 'cix-b1',
         invoiceId: 'inv_123',
         status,
         booking: makeBooking({ status: 'PENDING' }),
@@ -801,6 +1037,17 @@ describe('BookingsService', () => {
       expect(bookings.save).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'CONFIRMED' }),
       );
+      // The webhook path notifies too — there is only one confirmation story.
+      expect(events.bookingConfirmed).toHaveBeenCalledTimes(1);
+      expect(events.paymentReceived).toHaveBeenCalledTimes(1);
+      expect(events.bookingConfirmed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bookingId: 'b1',
+          tickets: expect.arrayContaining([
+            expect.objectContaining({ code: expect.stringMatching(/^TKT-/) }),
+          ]),
+        }),
+      );
     });
 
     it('is idempotent for an already CONFIRMED booking', async () => {
@@ -842,7 +1089,10 @@ describe('BookingsService', () => {
         expect.objectContaining({ status: 'FAILED' }),
       );
       expect(bookings.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'CANCELLED' }),
+        expect.objectContaining({
+          status: 'CANCELLED',
+          cancellationReason: 'PAYMENT_DECLINED',
+        }),
       );
     });
 
@@ -919,7 +1169,7 @@ describe('BookingsService', () => {
       bookings.findOne.mockResolvedValue(booking);
       payments.findOne.mockResolvedValue({
         id: 'p1',
-        providerId: 'cix-b1',
+        externalId: 'cix-b1',
         status: 'PENDING',
         invoiceId: null,
         checkoutUrl: null,
@@ -948,7 +1198,7 @@ describe('BookingsService', () => {
     });
   });
 
-  describe('createTickets', () => {
+  describe('issueTickets', () => {
     it('issues one TKT-XXXXXX ticket per seat for a confirmed booking', async () => {
       const confirmed = makeBooking({ status: 'CONFIRMED' });
       bookings.findOne.mockResolvedValue(confirmed);
@@ -956,7 +1206,7 @@ describe('BookingsService', () => {
       seatsForTickets();
       ticketSaveMock();
 
-      const result = await service.createTickets({
+      const result = await service.issueTickets({
         id: 'b1',
         userId: 'u1',
       });
@@ -984,7 +1234,7 @@ describe('BookingsService', () => {
         } as Ticket,
       ]);
 
-      const result = await service.createTickets({
+      const result = await service.issueTickets({
         id: 'b1',
         userId: 'u1',
       });
@@ -996,10 +1246,55 @@ describe('BookingsService', () => {
     it('rejects with 409 when the booking is not confirmed', async () => {
       bookings.findOne.mockResolvedValue(makeBooking({ status: 'PENDING' }));
 
-      await expectStatus(
-        service.createTickets({ id: 'b1', userId: 'u1' }),
-        409,
+      await expectStatus(service.issueTickets({ id: 'b1', userId: 'u1' }), 409);
+    });
+  });
+
+  describe('listTickets', () => {
+    it("returns a booking's tickets without creating any", async () => {
+      const confirmed = makeBooking({ status: 'CONFIRMED' });
+      bookings.findOne.mockResolvedValue(confirmed);
+      tickets.find.mockResolvedValue([
+        {
+          id: 't1',
+          code: 'TKT-EXIST1',
+          booking: confirmed,
+          movieTitle: 'The Grand Adventure',
+          theaterName: 'Grand Cineplex 1',
+          seatId: 'seat1',
+          rowLabel: 'A',
+          seatNumber: 1,
+          startsAt: new Date('2026-08-20T18:00:00Z'),
+          createdAt: new Date('2026-08-20T10:00:00Z'),
+        } as Ticket,
+      ]);
+
+      const result = await service.listTickets({ id: 'b1', userId: 'u1' });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].code).toBe('TKT-EXIST1');
+      // A read must never write.
+      expect(tickets.create).not.toHaveBeenCalled();
+      expect(tickets.save).not.toHaveBeenCalled();
+      expect(seatAvailability.getSeatMap).not.toHaveBeenCalled();
+    });
+
+    it('returns nothing for a booking with no tickets yet', async () => {
+      bookings.findOne.mockResolvedValue(makeBooking({ status: 'CONFIRMED' }));
+      tickets.find.mockResolvedValue([]);
+
+      const result = await service.listTickets({ id: 'b1', userId: 'u1' });
+
+      expect(result.items).toEqual([]);
+      expect(tickets.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects with 404 for another user's booking", async () => {
+      bookings.findOne.mockResolvedValue(
+        makeBooking({ status: 'CONFIRMED', userId: 'other' }),
       );
+
+      await expectStatus(service.listTickets({ id: 'b1', userId: 'u1' }), 404);
     });
   });
 
@@ -1018,6 +1313,19 @@ describe('BookingsService', () => {
       for (const call of bookings.save.mock.calls) {
         expect((call[0] as Booking).status).toBe('EXPIRED');
       }
+    });
+
+    it('records no cancellation reason for a lapsed hold', async () => {
+      bookings.find.mockResolvedValue([
+        makeBooking({ id: 'b1', status: 'PENDING' }),
+      ]);
+
+      await service.expireStaleBookings();
+
+      // A lapsed hold is EXPIRED, not CANCELLED — nobody decided anything.
+      const saved = bookings.save.mock.calls[0][0] as Booking;
+      expect(saved.status).toBe('EXPIRED');
+      expect(saved.cancellationReason ?? null).toBeNull();
     });
 
     it('returns zero when nothing is stale', async () => {
