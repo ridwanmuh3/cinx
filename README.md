@@ -101,14 +101,13 @@ pnpm demo                   # register → hold → pay → ticket lookup
 **Local dev:**
 
 ```bash
-cp .env.example .env        # set JWT_SECRET (>= 32 chars) + PG_PASSWORD
+cp .env.example .env        # set JWT_SECRET (>= 32 chars); local Postgres uses postgres
 pnpm install
-pnpm infra:up               # postgres, redis, rabbitmq, observability
-
+pnpm infra:up               # start infrastructure before seed scripts
 pnpm --filter @ticketing/user-service seed:admin    # admin@example.com
 pnpm --filter @ticketing/cinema-service seed
 
-pnpm build && pnpm dev      # gateway :3000, SPA :5173
+pnpm build && pnpm dev      # ensures local infra is healthy, then gateway :3000 + SPA :5173
 ```
 
 | Surface      | URL                                 |
