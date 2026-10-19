@@ -5,16 +5,8 @@ import { NButton } from 'naive-ui';
 import * as api from '@/shared/api';
 import { formatDateTime, formatPrice } from '@/shared/lib/format';
 import { describeApiError } from '@/shared/lib/api-errors';
-import { seatConflictFromError, useCountdown } from '@/features/booking';
+import { seatConflictFromError } from '@/features/booking';
 import type { SeatAvailability, SeatMap, Showtime } from '@/shared/api/types';
-
-interface HeldSeatInfo {
-  seatId: string;
-  row: string;
-  seatNumber: number;
-  priceAmount: number;
-  priceCurrency: 'IDR';
-}
 
 const route = useRoute();
 const router = useRouter();
@@ -26,15 +18,10 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 
 const selected = ref<Set<string>>(new Set());
-const held = ref<{ bookingId: string; expiresAt: string; seats: HeldSeatInfo[] } | null>(null);
 const holding = ref(false);
 const holdError = ref<string | null>(null);
 /** Seat ids the server just reported as taken by someone else. */
 const conflictIds = ref<Set<string>>(new Set());
-
-/* ---- hold countdown (5-minute TTL from the API) ---- */
-const holdExpiresAt = ref<string | null>(null);
-const { countdownText, expired, warning, start: startCountdown } = useCountdown(holdExpiresAt);
 
 watch(
   id,
@@ -47,6 +34,11 @@ watch(
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
+  showtime.value = null;
+  seatMap.value = null;
+  selected.value = new Set();
+  conflictIds.value = new Set();
+  holdError.value = null;
   try {
     const [s, map] = await Promise.all([api.getShowtime(id.value), api.getSeatMap(id.value)]);
     showtime.value = s;
@@ -144,13 +136,23 @@ function seatAria(seat: SeatAvailability): string {
 function toggle(seat: SeatAvailability): void {
   if (isUnavailable(seat)) return;
   const next = new Set(selected.value);
-  if (!next.delete(seat.id)) next.add(seat.id);
+  if (!next.delete(seat.id)) {
+    if (next.size >= 8) {
+      holdError.value = 'You can select up to 8 seats. Remove one to choose another.';
+      return;
+    }
+    next.add(seat.id);
+  }
   selected.value = next;
+  holdError.value = null;
 }
 
 /** Pulls the latest map, keeping the just-taken seats highlighted until the
  *  user makes their next move. Selection is cleared — those plans are dead. */
-async function refreshAfterConflict(conflict: { conflictSeatIds: Set<string>; message: string }): Promise<void> {
+async function refreshAfterConflict(conflict: {
+  conflictSeatIds: Set<string>;
+  message: string;
+}): Promise<void> {
   selected.value = new Set();
   try {
     const map = await api.getSeatMap(id.value);
@@ -174,19 +176,6 @@ async function hold(): Promise<void> {
   conflictIds.value = new Set();
   try {
     const res = await api.hold({ showtimeId: id.value, seatIds: ids });
-    held.value = {
-      bookingId: res.bookingId,
-      expiresAt: res.expiresAt,
-      seats: res.seats.map((s) => ({
-        seatId: s.seatId,
-        row: s.rowLabel,
-        seatNumber: s.seatNumber,
-        priceAmount: s.priceAmount,
-        priceCurrency: 'IDR',
-      })),
-    };
-    holdExpiresAt.value = res.expiresAt;
-    startCountdown();
     await router.push({ path: '/bookings/checkout', query: { bookingId: res.bookingId } });
   } catch (err) {
     const conflict = seatConflictFromError(err, seatMap.value);
@@ -213,14 +202,17 @@ async function hold(): Promise<void> {
   <div v-else-if="error" role="alert" class="bx-alert bx-alert--error">
     <span class="bx-alert-icon" aria-hidden="true">!</span>
     <span>{{ error }}</span>
+    <button type="button" class="bx-btn bx-btn--sm" @click="load">Retry</button>
   </div>
 
   <template v-else-if="seatMap && showtime">
-    <div class="bx-steps" aria-hidden="true">
-      <span class="bx-step bx-step--current"><span class="bx-step-num">01</span> Select</span>
+    <nav class="bx-steps" aria-label="Booking progress">
+      <span class="bx-step bx-step--current" aria-current="step"
+        ><span class="bx-step-num">01</span> Select</span
+      >
       <span class="bx-step"><span class="bx-step-num">02</span> Pay</span>
       <span class="bx-step"><span class="bx-step-num">03</span> Tickets</span>
-    </div>
+    </nav>
 
     <div class="bx-panel">
       <div class="bx-panel-head">
@@ -239,23 +231,22 @@ async function hold(): Promise<void> {
           <template v-else>—</template>
         </p>
 
-        <div v-if="held" class="bx-hold">
-          <span class="bx-hold-label">Seats held for you</span>
-          <span
-            role="timer"
-            class="bx-count"
-            :class="{ 'bx-count--expired': expired, 'bx-count--warn': warning }"
-            >{{ countdownText }}</span
-          >
-        </div>
-        <div v-if="held && expired" role="alert" class="bx-alert bx-alert--error mt-3">
-          <span class="bx-alert-icon" aria-hidden="true">!</span>
-          <span>Your hold expired and the seats were released. Pick your seats again.</span>
-        </div>
-
-        <div class="bx-seatmap mt-5">
+        <p id="seat-map-help" class="bx-dim mt-5">
+          Swipe sideways to see all seats. Tap a seat to select it.
+        </p>
+        <div
+          class="bx-seatmap mt-3"
+          role="region"
+          aria-label="Seat map, scroll horizontally"
+          tabindex="0"
+        >
           <div class="bx-screen-arc">Screen</div>
-          <div class="bx-seat-grid">
+          <div
+            class="bx-seat-grid"
+            role="group"
+            aria-label="Choose seats"
+            aria-describedby="seat-map-help"
+          >
             <div v-for="entry in grouped" :key="entry.row" class="bx-seat-row">
               <span class="bx-seat-row-label">{{ entry.row }}</span>
               <button
@@ -274,31 +265,35 @@ async function hold(): Promise<void> {
             </div>
             <p v-if="grouped.length === 0" class="bx-dim">No seats available for this showtime.</p>
           </div>
-          <div class="bx-legend">
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--available"></span>Available</span
-            >
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--selected"></span>Selected</span
-            >
-            <span class="bx-legend-item"><span class="bx-swatch bx-swatch--held"></span>Held</span>
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--booked"></span>Booked</span
-            >
-            <span class="bx-legend-item"><span class="bx-swatch bx-swatch--vip"></span>VIP</span>
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--couple"></span>Couple</span
-            >
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--accessible"></span>Accessible</span
-            >
-            <span class="bx-legend-item"
-              ><span class="bx-swatch bx-swatch--disabled"></span>Unavailable</span
-            >
-          </div>
-          <p class="bx-label mt-4 text-center">Up to 8 seats per booking</p>
         </div>
+        <div class="bx-legend">
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--available"></span>Available</span
+          >
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--selected"></span>Selected</span
+          >
+          <span class="bx-legend-item"><span class="bx-swatch bx-swatch--held"></span>Held</span>
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--booked"></span>Booked</span
+          >
+          <span class="bx-legend-item"><span class="bx-swatch bx-swatch--vip"></span>VIP</span>
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--couple"></span>Couple</span
+          >
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--accessible"></span>Accessible</span
+          >
+          <span class="bx-legend-item"
+            ><span class="bx-swatch bx-swatch--disabled"></span>Unavailable</span
+          >
+        </div>
+        <p class="bx-dim mt-4 text-center">Choose up to 8 seats per booking.</p>
 
+        <div v-if="holdError" role="alert" class="bx-alert bx-alert--error mt-4">
+          <span class="bx-alert-icon" aria-hidden="true">!</span>
+          <span>{{ holdError }}</span>
+        </div>
         <div class="bx-summary-bar">
           <span class="bx-data text-sm text-bone-dim">
             <template v-if="selectedCount > 0 && selectedLabels">
@@ -310,11 +305,6 @@ async function hold(): Promise<void> {
           <n-button type="primary" :loading="holding" :disabled="selectedCount === 0" @click="hold">
             {{ holding ? 'Holding…' : 'Hold seats' }}
           </n-button>
-        </div>
-
-        <div v-if="holdError" role="alert" class="bx-alert bx-alert--error mt-4">
-          <span class="bx-alert-icon" aria-hidden="true">!</span>
-          <span>{{ holdError }}</span>
         </div>
       </div>
     </div>

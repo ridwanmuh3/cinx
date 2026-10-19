@@ -17,6 +17,7 @@ const booking = ref<Booking | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const polling = ref(false);
+const pollingStopped = ref(false);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pollTicks = 0;
 
@@ -45,9 +46,12 @@ onBeforeUnmount(stopPolling);
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
+  pollingStopped.value = false;
   try {
     booking.value = await api.getBooking(id.value);
   } catch (err) {
+    stopPolling();
+    booking.value = null;
     error.value = describeApiError(err, 'Could not load this booking.');
   } finally {
     loading.value = false;
@@ -63,6 +67,7 @@ function startPolling(): void {
     void (async () => {
       if (Date.now() > deadline) {
         stopPolling();
+        pollingStopped.value = true;
         return;
       }
       try {
@@ -102,6 +107,7 @@ function seatLabel(seats: BookingSeatSnapshot[] | undefined, seatId: string): st
   <div v-else-if="error" role="alert" class="bx-alert bx-alert--error">
     <span class="bx-alert-icon" aria-hidden="true">!</span>
     <span>{{ error }}</span>
+    <n-button quaternary @click="load">Retry</n-button>
   </div>
 
   <template v-else-if="booking">
@@ -115,6 +121,10 @@ function seatLabel(seats: BookingSeatSnapshot[] | undefined, seatId: string): st
         <span class="bx-loading-dot" aria-hidden="true"></span>
         Waiting for confirmation…
       </p>
+      <p v-else-if="pollingStopped" class="bx-dim" role="status">
+        Still waiting for confirmation. Check again here or view My Bookings. Do not pay again until
+        your booking status is clear.
+      </p>
       <div class="mt-4 flex flex-wrap justify-center gap-2">
         <n-button quaternary size="small" class="bx-ctl-btn" @click="load">Refresh now</n-button>
         <router-link to="/bookings" class="bx-btn bx-btn--ghost bx-btn--sm"
@@ -126,17 +136,29 @@ function seatLabel(seats: BookingSeatSnapshot[] | undefined, seatId: string): st
     <div v-else-if="booking.status !== 'CONFIRMED'" class="bx-empty">
       <p class="bx-empty-title">Booking {{ booking.status }}</p>
       <p class="bx-empty-copy">
-        This booking is {{ booking.status }}. You can view past bookings in My Bookings.
+        This booking is {{ booking.status }}. Check My Bookings for details or choose another
+        showtime.
       </p>
-      <router-link to="/bookings" class="bx-btn bx-btn--ghost bx-btn--sm">My Bookings</router-link>
+      <div class="mt-4 flex flex-wrap justify-center gap-2">
+        <router-link to="/bookings" class="bx-btn bx-btn--ghost bx-btn--sm"
+          >My Bookings</router-link
+        >
+        <router-link
+          :to="`/showtimes/${booking.showtimeId}/seats`"
+          class="bx-btn bx-btn--ghost bx-btn--sm"
+          >Choose seats again</router-link
+        >
+      </div>
     </div>
 
     <template v-else>
-      <div class="bx-steps" aria-hidden="true">
+      <nav class="bx-steps" aria-label="Booking progress">
         <span class="bx-step bx-step--done"><span class="bx-step-num">01</span> Select</span>
         <span class="bx-step bx-step--done"><span class="bx-step-num">02</span> Pay</span>
-        <span class="bx-step bx-step--current"><span class="bx-step-num">03</span> Tickets</span>
-      </div>
+        <span class="bx-step bx-step--current" aria-current="step"
+          ><span class="bx-step-num">03</span> Tickets</span
+        >
+      </nav>
 
       <div class="bx-panel">
         <div class="bx-panel-head">

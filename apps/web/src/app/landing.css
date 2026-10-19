@@ -236,8 +236,9 @@
 }
 
 .landing .btn-xs {
-  padding: 6px 10px;
-  font-size: 11px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
 /* ---------- hero ---------- */
@@ -564,6 +565,13 @@
   margin-top: 6px;
 }
 
+.landing .board-scroll-hint {
+  display: none;
+  padding-top: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
 .landing .board-foot span {
   font-family: var(--mono);
   font-size: 10px;
@@ -584,14 +592,26 @@
 }
 
 @media (max-width: 560px) {
+  .landing .board-scroll-hint {
+    display: block;
+  }
   .landing .board {
     padding: 12px;
   }
 
   .landing .board-cols,
   .landing .board-row {
-    grid-template-columns: minmax(0, 1fr) 36px 40px 26px 38px 44px;
+    grid-template-columns: minmax(90px, 1fr) 65px 55px 34px 65px 54px;
     gap: 6px;
+  }
+
+  .landing .board-rows,
+  .landing .board-cols {
+    min-width: 420px;
+  }
+
+  .landing .board {
+    overflow-x: auto;
   }
 
   .landing .board-cols__h span,
@@ -599,7 +619,7 @@
   .landing .board-row .col-screen,
   .landing .board-row .col-left,
   .landing .board-row .col-price {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .landing .film-thumb {
@@ -614,8 +634,9 @@
   }
 
   .landing .btn-xs {
-    padding: 5px 6px;
-    font-size: 10px;
+    min-height: 44px;
+    padding: 8px 6px;
+    font-size: 12px;
   }
 }
 
@@ -781,14 +802,23 @@
 
 .landing .seats-layout {
   display: grid;
-  gap: 40px;
+  gap: 16px;
+}
+
+.landing .seatmap-hint {
+  color: var(--text-dim);
+  font-size: 14px;
 }
 
 @media (min-width: 960px) {
   .landing .seats-layout {
     grid-template-columns: minmax(0, 1fr) 320px;
-    gap: 48px;
+    gap: 16px 48px;
     align-items: start;
+  }
+
+  .landing .seatmap-hint {
+    grid-column: 1 / -1;
   }
 }
 
@@ -796,6 +826,7 @@
   border: 1px solid var(--line);
   background: var(--bg-panel);
   padding: 22px;
+  overflow-x: auto;
 }
 
 .landing .screen-arc {
@@ -822,6 +853,7 @@
   flex-direction: column;
   gap: 8px;
   max-width: 600px;
+  min-width: 640px;
   margin: 0 auto;
 }
 
@@ -842,6 +874,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1.1;
+  min-height: 44px;
   border: 1px solid var(--line);
   background: transparent;
   transition:

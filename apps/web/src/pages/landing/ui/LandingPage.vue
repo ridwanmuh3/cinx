@@ -235,7 +235,7 @@ const steps = [
     num: '04',
     title: 'Pay & go',
     art: 'ticket',
-    body: 'Pay in seconds and get your TKT-XXXXXX ticket codes, ready at the door.',
+    body: 'Pay with Xendit. Once your payment is confirmed, find your ticket codes in My Bookings.',
   },
 ];
 
@@ -279,7 +279,7 @@ const faqs = [
   },
   {
     q: 'What happens if my hold expires?',
-    a: 'The seats release back to the board and become available again. Just start over — you are never charged until you pay.',
+    a: 'If you have not started payment, pick seats again. If you have already paid or opened checkout, check My Bookings before starting a new booking.',
   },
   {
     q: 'Can two people ever book the same seat?',
@@ -287,7 +287,7 @@ const faqs = [
   },
   {
     q: 'What payment methods are available?',
-    a: 'This build uses a mock provider. “Pay now” succeeds instantly, and a “Simulate failure” path shows what happens on a declined payment and how to retry.',
+    a: 'Pay through Xendit after selecting your seats. Your seats are held for five minutes while you complete payment. Check My Bookings if confirmation takes longer than expected.',
   },
   {
     q: 'Can I cancel a booking?',
@@ -346,7 +346,7 @@ function formatPrice(amount: number): string {
             <span class="display-line display-line--amber">is waiting.</span>
           </h1>
           <p class="lede">
-            Book a cinema seat in under a minute. CinX locks your seats for five minutes while you
+            Choose a cinema seat in a few steps. CinX locks your seats for five minutes while you
             pay — so a seat is never sold twice.
           </p>
           <div class="cta-row">
@@ -383,13 +383,13 @@ function formatPrice(amount: number): string {
               </div>
             </div>
 
-            <div class="hold-strip" role="status" aria-live="polite">
+            <div class="hold-strip" aria-label="Example five-minute seat hold">
               <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
                 <rect x="4" y="7" width="8" height="6" rx="1" stroke="#ffb52e" stroke-width="1.3" />
                 <path d="M6 7V5a2 2 0 0 1 4 0v2" stroke="#ffb52e" stroke-width="1.3" />
               </svg>
-              <span class="hold-label">Seat G7 held for you</span>
-              <span class="hold-time">{{ countdown }}</span>
+              <span class="hold-label">Example seat hold · G7</span>
+              <span class="hold-time" aria-hidden="true">{{ countdown }}</span>
             </div>
 
             <div class="board-cols board-cols__h" aria-hidden="true">
@@ -435,6 +435,8 @@ function formatPrice(amount: number): string {
               </div>
             </div>
 
+            <p class="board-scroll-hint">Swipe sideways for prices and booking links.</p>
+
             <div class="board-foot">
               <span>5:00 hold · conflict-safe · TKT-XXXXXX</span>
               <router-link to="/movies">Full schedule &rarr;</router-link>
@@ -448,7 +450,7 @@ function formatPrice(amount: number): string {
         <div class="section-head">
           <h2 class="section-title">Book in four steps</h2>
           <p class="section-sub">
-            From first glance to ticket in hand — comfortably under two minutes.
+            Choose a film and showtime, pick seats, then pay securely to get your tickets.
           </p>
         </div>
         <div class="steps">
@@ -496,12 +498,19 @@ function formatPrice(amount: number): string {
         <div class="section-head">
           <h2 class="section-title">One auditorium. Three seat classes.</h2>
           <p class="section-sub">
-            96 seats, live availability, zero double-booking. Tap any open seat to hold it.
+            Try the sample auditorium below. Select up to four seats to preview a booking; no seats
+            are held here.
           </p>
         </div>
 
         <div class="seats-layout">
-          <div class="seatmap">
+          <p class="seatmap-hint">Swipe sideways to explore the sample seat map.</p>
+          <div
+            class="seatmap"
+            role="region"
+            aria-label="Sample seat map, scroll horizontally"
+            tabindex="0"
+          >
             <div class="screen-arc" aria-hidden="true">Screen</div>
             <div
               class="seat-grid"
@@ -565,7 +574,8 @@ function formatPrice(amount: number): string {
               </div>
             </div>
             <p class="tiers-foot">
-              Demo auditorium — one rate across classes; operators price each showtime.
+              Demo auditorium — these seats are for practice only. Prices appear with real
+              showtimes.
             </p>
             <router-link class="btn btn-primary" to="/movies">Book your seats</router-link>
           </aside>
@@ -615,7 +625,7 @@ function formatPrice(amount: number): string {
         <div class="final-board">
           <span class="board-title">Now showing</span>
           <h2 class="final-title">The screen's about to start.</h2>
-          <p class="final-copy">Pick a film, hold your seats, and be in the dark in two minutes.</p>
+          <p class="final-copy">Pick a film, hold your seats, and pay securely for your tickets.</p>
           <router-link class="btn btn-primary btn-lg" to="/movies">Book now</router-link>
         </div>
       </section>
@@ -655,7 +665,7 @@ function formatPrice(amount: number): string {
       <div class="footer-base">
         <span>&copy; 2026 CinX</span>
         <span class="footer-base-dot" aria-hidden="true"></span>
-        <span>Demo build · mock payment</span>
+        <span>Payment via Xendit</span>
         <span class="footer-base-dot" aria-hidden="true"></span>
         <span>Seats locked with Redis redlock</span>
       </div>

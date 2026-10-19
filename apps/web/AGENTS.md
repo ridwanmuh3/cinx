@@ -13,7 +13,7 @@ You are an expert in TypeScript, Vue 3, and scalable web application development
 - Use `ref`/`computed`/`watch` for local state; keep state transformations pure
 - Prefer `computed` over methods for derived values used in templates
 - Use lazy-loaded routes (`() => import(...)`) for feature routes
-- Implement route guards (auth/admin) in `src/router.ts` via `beforeEach`
+- Implement route guards (auth/admin) in `src/app/router.ts` via `beforeEach`
 - Keep components small and focused on a single responsibility
 
 ## State Management
@@ -26,10 +26,10 @@ You are an expert in TypeScript, Vue 3, and scalable web application development
 
 - Use Naive UI components (NButton, NInput, NSelect, NDataTable, NForm, NDatePicker,
   NMessage/NNotification, useDialog, etc.) instead of hand-rolled equivalents
-- Theme all Naive UI usage through `src/ui/theme.ts` overrides — do not hard-code
+- Theme all Naive UI usage through `src/shared/ui/theme.ts` overrides — do not hard-code
   component colors outside it
 - Add `data-testid` attributes on Naive UI form controls where e2e tests target them
-- The CinX "Showtime Board" design tokens live in `src/styles.css` (CSS variables);
+- The CinX "Showtime Board" design tokens live in `src/app/styles.css` (CSS variables);
   keep the board aesthetic: 0 radius, amber single-action, uppercase dot-matrix labels
 
 ## Data & API
