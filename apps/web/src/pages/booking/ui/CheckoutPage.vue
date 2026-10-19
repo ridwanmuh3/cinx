@@ -36,6 +36,8 @@ watch(
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
+  booking.value = null;
+  checkoutUrl.value = null;
   try {
     booking.value = await api.getBooking(bookingId.value);
   } catch (err) {
@@ -47,14 +49,14 @@ async function load(): Promise<void> {
 
 const isPending = computed(() => booking.value?.status === 'PENDING');
 
-/** EXPIRED → "expired" — for the terminal-state sentence. */
+/** EXPIRED → "expired", REFUND_PENDING → "refund pending". */
 function statusWord(status: string): string {
-  return status.charAt(0) + status.slice(1).toLowerCase();
+  return status.toLowerCase().replaceAll('_', ' ');
 }
 
 async function pay(): Promise<void> {
   const id = bookingId.value;
-  if (!id) return;
+  if (!id || !isPending.value || expired.value || paying.value) return;
   paying.value = true;
   error.value = null;
   try {
@@ -96,18 +98,33 @@ function goConfirm(id: string): void {
   </div>
 
   <template v-else-if="booking">
-    <div class="bx-steps" aria-hidden="true">
+    <nav class="bx-steps" aria-label="Booking progress">
       <span class="bx-step bx-step--done"><span class="bx-step-num">01</span> Select</span>
-      <span class="bx-step bx-step--current"><span class="bx-step-num">02</span> Pay</span>
+      <span class="bx-step bx-step--current" aria-current="step"
+        ><span class="bx-step-num">02</span> Pay</span
+      >
       <span class="bx-step"><span class="bx-step-num">03</span> Tickets</span>
-    </div>
+    </nav>
 
     <div class="bx-panel">
       <div class="bx-panel-head">
         <h1 class="bx-panel-title">{{ booking.movie?.title }}</h1>
-        <span class="bx-chip bx-chip--amber">
+        <span v-if="isPending && !expired" class="bx-chip bx-chip--amber">
           <span class="bx-chip-dot bx-chip-dot--pulse" aria-hidden="true"></span>
-          Hold live
+          Seats held
+        </span>
+        <span
+          v-else
+          class="bx-chip"
+          :class="booking.status === 'CONFIRMED' ? 'bx-chip--green' : 'bx-chip--red'"
+        >
+          {{
+            booking.status === 'CONFIRMED'
+              ? 'Confirmed'
+              : expired && isPending
+                ? 'Check status'
+                : 'Hold ended'
+          }}
         </span>
       </div>
       <div class="bx-panel-body">
@@ -116,7 +133,7 @@ function goConfirm(id: string): void {
           {{ booking.startsAt ? formatDateTime(booking.startsAt) : '' }}
         </p>
 
-        <div class="bx-hold">
+        <div v-if="isPending && !expired" class="bx-hold">
           <span class="bx-hold-label">Hold expires in</span>
           <span
             role="timer"
@@ -151,19 +168,44 @@ function goConfirm(id: string): void {
           <div role="alert" class="bx-alert bx-alert--error mt-5">
             <span class="bx-alert-icon" aria-hidden="true">!</span>
             <span>
-              This booking ({{ statusWord(booking.status) }}) can no longer be paid — the seats have
-              been released. Pick your seats again.
+              This booking is {{ statusWord(booking.status) }} and can no longer be paid.
+              <template v-if="booking.status === 'REFUND_PENDING'">
+                A refund is being processed. Check My Bookings before choosing seats
+                again.</template
+              >
+              <template v-else-if="booking.status === 'REFUNDED'">
+                Your payment was refunded. Choose seats again if you still want tickets.</template
+              >
+              <template v-else>
+                The hold ended; choose seats again if you still want tickets.</template
+              >
             </span>
           </div>
-          <router-link to="/movies" class="bx-btn bx-btn--ghost mt-4">Back to cinema</router-link>
+          <router-link
+            v-if="booking.status === 'REFUND_PENDING'"
+            to="/bookings"
+            class="bx-btn bx-btn--ghost mt-4"
+            >My Bookings</router-link
+          >
+          <router-link
+            v-else
+            :to="`/showtimes/${booking.showtimeId}/seats`"
+            class="bx-btn bx-btn--ghost mt-4"
+            >Choose seats again</router-link
+          >
         </template>
 
         <template v-else-if="expired">
           <div role="alert" class="bx-alert bx-alert--error mt-5">
             <span class="bx-alert-icon" aria-hidden="true">!</span>
-            <span>Your hold expired and the seats were released. Pick your seats again.</span>
+            <span
+              >Your hold timer ended. Check booking status before choosing seats again, especially
+              if you started payment.</span
+            >
           </div>
-          <router-link to="/movies" class="bx-btn bx-btn--ghost mt-4">Back to cinema</router-link>
+          <router-link :to="`/bookings/confirm/${booking.id}`" class="bx-btn bx-btn--ghost mt-4"
+            >Check booking status</router-link
+          >
         </template>
 
         <template v-else-if="checkoutUrl">
@@ -185,7 +227,7 @@ function goConfirm(id: string): void {
             timer ends — if it runs out, your seats are released and you can pick again.
           </p>
           <div class="mt-5 flex flex-wrap gap-3">
-            <n-button type="primary" :loading="paying" @click="pay()">
+            <n-button type="primary" :loading="paying" :disabled="paying" @click="pay()">
               {{ paying ? 'Opening payment…' : 'Pay with Xendit' }}
             </n-button>
           </div>
@@ -198,4 +240,9 @@ function goConfirm(id: string): void {
       </div>
     </div>
   </template>
+  <div v-else-if="error" role="alert" class="bx-alert bx-alert--error">
+    <span class="bx-alert-icon" aria-hidden="true">!</span>
+    <span>{{ error }}</span>
+    <n-button quaternary @click="load">Retry</n-button>
+  </div>
 </template>

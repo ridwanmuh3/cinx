@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { NSelect } from 'naive-ui';
 import * as api from '@/shared/api';
 import { describeApiError } from '@/shared/lib/api-errors';
@@ -8,7 +8,6 @@ import { formatDateTime, formatMediumDate, formatPrice } from '@/shared/lib/form
 import type { Movie, Showtime } from '@/shared/api/types';
 
 const route = useRoute();
-const router = useRouter();
 const id = computed(() => String(route.params.id ?? ''));
 
 const movie = ref<Movie | null>(null);
@@ -16,8 +15,6 @@ const showtimes = ref<Showtime[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const selectedTheaterId = ref('');
-const scanning = ref(false);
-const notice = ref<string | null>(null);
 
 watch(
   id,
@@ -30,7 +27,7 @@ watch(
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
-  notice.value = null;
+  selectedTheaterId.value = '';
   movie.value = null;
   showtimes.value = [];
   try {
@@ -71,7 +68,20 @@ const dayGroups = computed(() => {
   const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
   const todayKey = dayKey(today);
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const MONTHS = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   const sorted = [...filteredShowtimes.value].sort(
     (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
@@ -90,37 +100,6 @@ const dayGroups = computed(() => {
   }
   return [...groups.values()];
 });
-
-/**
- * The hero CTA checks live seat maps before navigating, so "Book tickets"
- * can never drop the user into a dead seat map — it lands on the first
- * showtime that genuinely has an open seat, and says so when none does.
- */
-async function bookTickets(): Promise<void> {
-  if (scanning.value) return;
-  scanning.value = true;
-  notice.value = null;
-  try {
-    const candidates = filteredShowtimes.value.filter((s) => s.availableSeats > 0);
-    for (const s of candidates) {
-      try {
-        const map = await api.getSeatMap(s.id);
-        if (map.seats.some((seat) => !seat.isDisabled && seat.status === 'AVAILABLE')) {
-          await router.push(`/showtimes/${s.id}/seats`);
-          return;
-        }
-      } catch {
-        // Probe is best-effort; try the next showtime.
-      }
-    }
-    notice.value =
-      candidates.length === 0
-        ? 'Every showtime for this film is fully booked. Please check back later.'
-        : 'We could not find an open seat just now — the list below shows live availability.';
-  } finally {
-    scanning.value = false;
-  }
-}
 </script>
 
 <template>
@@ -154,16 +133,9 @@ async function bookTickets(): Promise<void> {
           {{ movie.genres.join(', ') }}
         </p>
         <p class="bx-detail-copy">{{ movie.synopsis }}</p>
-        <button
-          v-if="filteredShowtimes.length"
-          type="button"
-          class="bx-btn bx-btn--primary mt-6"
-          :disabled="scanning"
-          @click="bookTickets"
-        >
-          {{ scanning ? 'Finding seats…' : 'Book tickets' }}
-        </button>
-        <p v-if="notice" role="status" class="bx-dim mt-3">{{ notice }}</p>
+        <a v-if="filteredShowtimes.length" href="#showtimes" class="bx-btn bx-btn--primary mt-6">
+          Choose a showtime
+        </a>
       </div>
     </div>
 
@@ -194,13 +166,13 @@ async function bookTickets(): Promise<void> {
                   {{ formatPrice(s.price.amount) }} / seat
                 </p>
               </div>
+              <span v-if="s.availableSeats === 0" class="bx-seat-status">Sold out</span>
               <router-link
+                v-else
                 :to="`/showtimes/${s.id}/seats`"
                 class="bx-btn bx-btn--ghost bx-btn--sm"
-                :class="{ 'bx-btn--disabled': s.availableSeats === 0 }"
-                :aria-disabled="s.availableSeats === 0"
               >
-                {{ s.availableSeats === 0 ? 'Sold out' : 'Select seats' }}
+                Select seats
               </router-link>
             </div>
           </template>

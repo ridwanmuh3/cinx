@@ -14,6 +14,12 @@ const form = ref({ email: '', password: '' });
 const loading = ref(false);
 const error = ref<string | null>(null);
 const registered = route.query.registered === '1';
+const redirectTo = (): string => {
+  const redirect = route.query.redirect;
+  return typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
+    ? redirect
+    : '/movies';
+};
 
 const rules: FormRules = {
   email: [
@@ -30,10 +36,9 @@ async function onSubmit(): Promise<void> {
   }
   loading.value = true;
   error.value = null;
-  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : undefined;
   try {
     await auth.login(form.value);
-    router.push(redirect || '/movies');
+    await router.push(redirectTo());
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Login failed';
   } finally {
@@ -90,7 +95,9 @@ async function onSubmit(): Promise<void> {
       </n-form>
       <p class="bx-auth-switch">
         Don't have an account?
-        <router-link to="/register">Register</router-link>
+        <router-link :to="{ path: '/register', query: { redirect: redirectTo() } }"
+          >Register</router-link
+        >
       </p>
     </div>
   </section>

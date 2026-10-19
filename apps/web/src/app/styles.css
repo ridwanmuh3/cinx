@@ -423,7 +423,7 @@
   }
 
   .bx-step {
-    @apply inline-flex items-center gap-2 font-board text-[11px] uppercase tracking-[0.1em];
+    @apply inline-flex items-center gap-2 font-body text-sm;
     color: var(--text-faint);
   }
 
@@ -436,7 +436,7 @@
   }
 
   .bx-step-num {
-    @apply inline-flex h-[22px] w-[22px] items-center justify-center border border-current text-[10px];
+    @apply inline-flex h-6 w-6 items-center justify-center border border-current font-board text-xs;
   }
 
   /* ---------- forms ---------- */
@@ -559,7 +559,7 @@
   }
 
   .bx-row-meta {
-    @apply mt-1 font-board text-xs tracking-[0.04em] text-bone-dim;
+    @apply mt-1 font-body text-sm text-bone-dim;
   }
 
   .bx-row-actions {
@@ -619,7 +619,7 @@
   /* ---------- seat map ---------- */
 
   .bx-seatmap {
-    @apply overflow-x-auto border border-line p-[22px];
+    @apply overflow-x-auto border border-line p-4 sm:p-[22px];
     background: var(--bg-panel);
     -webkit-overflow-scrolling: touch;
   }
@@ -635,7 +635,7 @@
 
   .bx-seat-row {
     display: grid;
-    grid-template-columns: 24px repeat(12, 40px);
+    grid-template-columns: 24px repeat(12, 44px);
     gap: 7px;
     align-items: center;
   }
@@ -645,7 +645,7 @@
   }
 
   .bx-seat {
-    @apply inline-flex h-[42px] w-10 items-center justify-center border border-line font-board text-[11px] text-bone-dim;
+    @apply relative inline-flex h-11 w-11 items-center justify-center border border-line font-board text-xs text-bone-dim;
     background: transparent;
     transition:
       border-color 0.12s ease,
@@ -724,7 +724,7 @@
   }
 
   .bx-legend-item {
-    @apply inline-flex items-center gap-[7px] font-board text-[11px] tracking-[0.06em] text-bone-dim;
+    @apply inline-flex items-center gap-[7px] font-body text-sm text-bone-dim;
   }
 
   .bx-swatch {
@@ -869,7 +869,7 @@
   }
 
   .bx-auth-title {
-    @apply mb-5 text-center font-display text-[15px] font-semibold uppercase tracking-[0.12em] text-bone;
+    @apply mb-5 text-center font-display text-xl font-semibold text-bone;
   }
 
   .bx-auth-switch {
@@ -916,7 +916,7 @@
   }
 
   .bx-summary-label {
-    @apply font-board text-[10px] uppercase tracking-[0.14em] text-bone-dim;
+    @apply font-body text-sm text-bone-dim;
   }
 
   .bx-summary-value {
@@ -937,7 +937,7 @@
     justify-content: space-between;
     gap: 12px;
     margin: 20px -18px -18px;
-    padding: 14px 18px;
+    padding: 14px 18px calc(14px + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid var(--line);
     background: var(--bar-bg);
     backdrop-filter: blur(6px);
@@ -1140,7 +1140,7 @@
   }
 
   .bx-bar-link {
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 12px;
   }
 

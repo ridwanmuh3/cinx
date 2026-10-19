@@ -12,7 +12,7 @@ const router = useRouter();
 /** Where to land after signing in — defaults to the cinema. */
 const redirectTo = (): string => {
   const r = route.query.redirect;
-  return typeof r === 'string' && r.startsWith('/') ? r : '/movies';
+  return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/movies';
 };
 
 const formRef = ref<FormInst | null>(null);
@@ -52,7 +52,7 @@ async function onSubmit(): Promise<void> {
   } catch (err) {
     if (auth.isAuthenticated) {
       // Registered but auto-login hiccuped — the account exists; ask them to sign in.
-      await router.push({ path: '/login', query: { registered: '1' } });
+      await router.push({ path: '/login', query: { registered: '1', redirect: redirectTo() } });
       return;
     }
     error.value = err instanceof Error ? err.message : 'Registration failed';
@@ -109,7 +109,9 @@ async function onSubmit(): Promise<void> {
       </n-form>
       <p class="bx-auth-switch">
         Already have an account?
-        <router-link to="/login">Sign in</router-link>
+        <router-link :to="{ path: '/login', query: { redirect: redirectTo() } }"
+          >Sign in</router-link
+        >
       </p>
     </div>
   </section>
