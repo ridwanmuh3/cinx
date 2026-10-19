@@ -1,130 +1,85 @@
-# CinX — Pemesanan Tiket Bioskop
+# CinX — Cinema Ticket Booking
 
-CinX membantu pelanggan memilih kursi dan memesan tiket bioskop melalui pembayaran Xendit. Admin mengelola film, studio, dan jadwal tayang melalui aplikasi yang sama.
+## 1. Project Overview
 
-[Ringkasan](#1-ringkasan-proyek) · [Fitur](#2-fitur) · [Teknologi](#3-teknologi) · [Arsitektur](#4-arsitektur) · [Pertimbangan Desain](#5-pertimbangan-desain) · [Rencana Pengembangan](#6-rencana-pengembangan)
+CinX is a portfolio project covering seat selection, payments, ticket issuance, and cinema administration. It explores concurrent seat reservations and payment coordination across NestJS services, with a Vue frontend.
 
-## 1. Ringkasan Proyek
-
-Proyek portofolio ini mengeksplorasi alur pemesanan tiket yang melibatkan beberapa layanan. Pelanggan memilih jadwal dan kursi, lalu membayar pesanan. Sistem mencadangkan kursi selama proses pembayaran dan menerbitkan tiket setelah menerima konfirmasi pembayaran.
-
-CinX berfokus pada penanganan permintaan kursi yang bersamaan, pembagian tanggung jawab layanan, dan penyelarasan status pemesanan dengan penyedia pembayaran. Sistem menggunakan Redis untuk mengunci kursi sementara. Batasan unik pada PostgreSQL mencegah dua catatan kursi dengan pasangan jadwal dan kursi yang sama.
-
-Repositori ini mencakup antarmuka pelanggan dan admin, layanan sisi server, konfigurasi infrastruktur, serta pengujian. Docker Compose memudahkan pengembang menjalankan dan mempelajari sistem. Konfigurasi saat ini belum menyediakan redundansi layanan untuk menjaga ketersediaan saat terjadi gangguan. Proyek ini juga belum menyertakan bukti kapasitas untuk penggunaan produksi.
+The core implementation combines five-minute Redis locks, PostgreSQL uniqueness constraints, and Xendit payment confirmation.
 
 <details>
-<summary>Menjalankan proyek</summary>
+<summary>Run locally</summary>
 
-Siapkan Node.js 22.9 atau versi lebih baru, pnpm, serta Docker dengan Compose. Salin konfigurasi awal, lalu isi `JWT_SECRET` dengan sedikitnya 32 karakter. Gunakan kredensial Xendit untuk pembayaran dan `RESEND_API_KEY` untuk mengirim surel.
+Requires Node.js 22.9+, pnpm, and Docker Compose.
 
 ```bash
 cp .env.example .env
+# Set JWT_SECRET to at least 32 characters.
 pnpm install
 pnpm dev
 ```
 
-Perintah `pnpm dev` menjalankan PostgreSQL, Redis, dan RabbitMQ, lalu menunggu ketiganya siap sebelum menjalankan aplikasi di komputer lokal. Perintah ini juga memuat `.env` dan menyesuaikan alamat koneksi untuk penggunaan lokal. Kata sandi PostgreSQL lokal mengikuti konfigurasi infrastruktur, yaitu `postgres`.
+`pnpm dev` starts PostgreSQL, Redis, and RabbitMQ, waits for readiness, then runs the apps with local connection settings. Local PostgreSQL uses `postgres` as its password.
 
-Untuk mengisi katalog dan membuat akun admin, jalankan perintah berikut di terminal lain setelah infrastruktur siap:
+- App: http://localhost:5173
+- API health: http://localhost:3000/api/v1/health
+- Observability: run `pnpm infra:up`, then open http://localhost:3001.
+
+Payments require Xendit credentials. Webhooks require a public gateway URL and `XENDIT_WEBHOOK_TOKEN`. Email requires `RESEND_API_KEY`; otherwise, notifications run in logging-only mode.
+
+To populate demo data, set `SEED_ADMIN_PASSWORD` to at least 12 characters in `.env`, then run these commands in another terminal:
 
 ```bash
-# Isi SEED_ADMIN_PASSWORD minimal 12 karakter di .env terlebih dahulu.
 PG_HOST=127.0.0.1 PG_PASSWORD=postgres pnpm --filter @ticketing/user-service exec node --env-file=../../.env --import tsx src/scripts/seed-admin.ts
 pnpm --filter @ticketing/cinema-service seed
 ```
 
-Skrip pengisian katalog menghapus data katalog sebelumnya dan memakai tanggal tetap untuk jadwal contoh. Jalankan skrip hanya pada basis data demo. Sesuaikan jadwal melalui halaman admin sebelum mencoba pemesanan.
-
-Untuk menjalankan seluruh layanan melalui Docker, isi juga `PG_PASSWORD` pada `.env`, lalu jalankan:
-
-```bash
-pnpm docker:up
-pnpm docker:seed
-```
-
-Pilih salah satu mode agar port aplikasi dan infrastruktur tidak berbenturan. Jalankan `pnpm infra:up` jika ingin memakai perangkat pemantauan lokal.
-
-| Akses                    | URL bawaan                          |
-| ------------------------ | ----------------------------------- |
-| Aplikasi                 | http://localhost:5173               |
-| REST API                 | http://localhost:3000/api/v1        |
-| Pemeriksaan layanan      | http://localhost:3000/api/v1/health |
-| Grafana, jika dijalankan | http://localhost:3001               |
-
-Xendit mengirim pemberitahuan status pembayaran melalui webhook, yaitu permintaan HTTP ke alamat aplikasi. Sediakan URL publik menuju gateway, isi `XENDIT_WEBHOOK_URL` dan `XENDIT_WEBHOOK_TOKEN`, lalu daftarkan webhook melalui `pnpm --filter @ticketing/ticket-service xendit:webhook`. Kredensial Xendit menentukan mode pembayaran. Tanpa kredensial Resend, layanan notifikasi hanya mencatat isi surel tanpa mengirimkannya.
+The catalog seed deletes existing catalog data and uses fixed showtime dates. Use a demo database and update showtimes through the admin pages before booking.
 
 </details>
 
-## 2. Fitur
+## 2. Features
 
-### Pelanggan
+- **Browsing:** movies, showtimes, prices, and seat maps with availability fetched from the backend.
+- **Accounts:** JWT authentication and personal booking history.
+- **Reservations:** up to eight seats per booking, with a five-minute payment window.
+- **Payments:** Xendit hosted checkout, webhook confirmation, and payment-status synchronization.
+- **Tickets and refunds:** ticket lookup by code, unpaid booking cancellation, and provider-backed refunds.
+- **Notifications:** booking confirmations and payment receipts through Resend.
+- **Administration:** movie, theater, and showtime management with role checks and schedule-overlap validation.
 
-- **Katalog dan jadwal:** pelanggan melihat film, jadwal tayang, harga, serta denah kursi. Aplikasi mengambil status ketersediaan kursi saat memuat denah.
-- **Akun:** pelanggan mendaftar, masuk, dan melihat riwayat pemesanannya. Sistem menggunakan JWT untuk memverifikasi identitas pengguna.
-- **Reservasi kursi:** pelanggan memilih paling banyak delapan kursi per pemesanan. Sistem mencadangkan kursi selama lima menit sebelum reservasi kedaluwarsa.
-- **Pembayaran:** pelanggan membayar melalui halaman tagihan Xendit. Sistem memperbarui status melalui webhook atau meminta status terbaru ke Xendit ketika konfirmasi belum tiba.
-- **Tiket:** pelanggan melihat tiket setelah sistem mengonfirmasi pemesanan dan mencari tiket berdasarkan kode.
-- **Pembatalan dan pengembalian dana:** pelanggan membatalkan pemesanan yang belum lunas atau mengajukan pengembalian dana untuk pemesanan yang sudah terkonfirmasi. Sistem mengikuti hasil dari penyedia pembayaran untuk memperbarui status pengembalian dana.
-- **Notifikasi surel:** layanan notifikasi mengirim tiket dan bukti pembayaran kepada pelanggan.
+The landing-page seat map and countdown are demos. The booking flow uses backend data.
 
-### Admin
+## 3. Tech Stack
 
-- Admin mengelola film, studio, dan jadwal tayang. Sistem memeriksa hak akses admin sebelum menerima perubahan.
-- Sistem memeriksa benturan jadwal pada studio yang sama saat admin membuat atau mengubah jadwal.
+| Area                       | Technologies                                                       |
+| -------------------------- | ------------------------------------------------------------------ |
+| Frontend                   | Vue 3, TypeScript, Vite, Pinia, Vue Router, Naive UI, Tailwind CSS |
+| Backend                    | NestJS, REST gateway, gRPC, Protocol Buffers                       |
+| Data and locking           | PostgreSQL 18, TypeORM, Redis, `redlock`                           |
+| Messaging and integrations | RabbitMQ, Xendit, Resend                                           |
+| Observability              | OpenTelemetry, OTel Collector, Tempo, Prometheus, Grafana          |
+| Tooling                    | pnpm workspaces, Turborepo, Docker Compose, GitHub Actions         |
+| Testing                    | Jest, Vitest, Playwright, k6                                       |
 
-Halaman pengenalan menampilkan contoh denah kursi dan hitung mundur. Saat pelanggan memesan tiket, aplikasi memakai data jadwal dan status pemesanan dari server.
+## 4. Architecture
 
-## 3. Teknologi
-
-| Bagian              | Teknologi dan peran                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Antarmuka pengguna  | Vue 3, TypeScript, Vite, Vue Router, Pinia, Naive UI, dan Tailwind CSS                                                              |
-| Layanan sisi server | NestJS; REST untuk klien, gRPC dan Protocol Buffers untuk komunikasi internal                                                       |
-| Penyimpanan         | PostgreSQL 18 dan TypeORM; basis data terpisah untuk pengguna, katalog, dan pemesanan                                               |
-| Penguncian kursi    | Redis dan pustaka `redlock`                                                                                                         |
-| Pesan asinkron      | RabbitMQ untuk pesan notifikasi                                                                                                     |
-| Integrasi eksternal | Xendit untuk tagihan dan pengembalian dana; Resend untuk surel                                                                      |
-| Pemantauan          | OpenTelemetry, OTel Collector, Tempo, Prometheus, dan Grafana                                                                       |
-| Pengembangan        | pnpm workspaces, Turborepo, Docker Compose, GitHub Actions                                                                          |
-| Pengujian           | Jest untuk layanan sisi server, Vitest untuk antarmuka, Playwright untuk pengujian alur lengkap (E2E), dan k6 untuk pengujian beban |
-
-<details>
-<summary>Perintah pemeriksaan</summary>
-
-```bash
-pnpm build
-pnpm lint
-pnpm test
-pnpm --filter @ticketing/ticket-service test:integration
-pnpm --filter web e2e:install
-pnpm --filter web e2e
-```
-
-Jalankan infrastruktur lokal sebelum menguji integrasi. Lihat konfigurasi E2E di [`apps/web/e2e`](./apps/web/e2e) serta kebutuhan dan skenario k6 di [`benchmark/README.md`](./benchmark/README.md). Jalankan pengujian pada lingkungan tujuan untuk memeriksa hasilnya; keberadaan skrip saja tidak membuktikan semua skenario berhasil.
-
-</details>
-
-## 4. Arsitektur
-
-### Gambaran sistem
-
-Peramban mengakses API melalui satu gateway, yaitu pintu masuk permintaan ke server. Gateway meneruskan permintaan ke layanan terkait melalui gRPC. Gateway juga menggabungkan data, misalnya denah studio dari layanan katalog dan ketersediaan kursi dari layanan pemesanan.
+The browser calls one REST gateway. The gateway routes requests over gRPC and combines catalog data with booking availability. Each data-owning service uses its own database within one PostgreSQL instance.
 
 ```mermaid
 flowchart TB
-    Web["Peramban · Aplikasi Vue"] -->|REST / JSON + JWT| Gateway["API Gateway"]
+    Web["Browser · Vue SPA"] -->|REST + JWT| Gateway["API Gateway"]
 
-    subgraph Backend["Layanan sisi server · NestJS"]
-        Gateway -->|gRPC| User["user-service"]
-        Gateway -->|gRPC| Cinema["cinema-service"]
-        Gateway -->|gRPC| Ticket["ticket-service"]
-        Ticket -->|gRPC · validasi kursi| Cinema
-        Ticket -->|gRPC · kontak pelanggan| User
-        Ticket -->|pesan notifikasi| MQ["RabbitMQ"]
-        MQ --> Notification["notification-service"]
+    subgraph Services["NestJS services"]
+        Gateway -->|gRPC| User["user-service · accounts"]
+        Gateway -->|gRPC| Cinema["cinema-service · catalog"]
+        Gateway -->|gRPC| Ticket["ticket-service · bookings and payments"]
+        Ticket -->|validate seats| Cinema
+        Ticket -->|customer contact| User
+        Ticket -->|events| MQ["RabbitMQ"]
+        MQ --> Notification["notification-service · email"]
     end
 
-    subgraph PG["PostgreSQL · satu instans, tiga basis data"]
+    subgraph PG["PostgreSQL · one instance"]
         UserDB[(user_db)]
         CinemaDB[(cinema_db)]
         TicketDB[(ticket_db)]
@@ -133,56 +88,43 @@ flowchart TB
     User --> UserDB
     Cinema --> CinemaDB
     Ticket --> TicketDB
-    Ticket -->|kunci kursi| Redis[(Redis)]
-    Ticket -->|tagihan / status / pengembalian dana| Xendit["Xendit"]
-    Web -->|halaman pembayaran| Xendit
+    Ticket -->|seat locks| Redis[(Redis)]
+    Ticket -->|invoice / status / refund| Xendit["Xendit"]
+    Web -->|hosted checkout| Xendit
     Xendit -->|webhook| Gateway
-    Notification -->|surel| Resend["Resend"]
+    Notification --> Resend["Resend"]
 ```
 
-| Komponen               | Tanggung jawab                                                                                                                                     |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gateway`              | Menerima permintaan API, memvalidasi masukan, memverifikasi JWT, memeriksa hak akses, dan menggabungkan respons; tidak memiliki basis data sendiri |
-| `user-service`         | Mengelola akun, kredensial, dan peran pengguna serta menerbitkan JWT                                                                               |
-| `cinema-service`       | Mengelola film, studio, kursi, jadwal, dan harga                                                                                                   |
-| `ticket-service`       | Mengelola pemesanan, mengunci kursi, memproses pembayaran dan pengembalian dana, menerbitkan tiket, serta menyelaraskan status secara berkala      |
-| `notification-service` | Menerima pesan pemesanan dan pembayaran, lalu mengirim surel                                                                                       |
+### Booking flow
 
-Setiap layanan pemilik data mengakses basis datanya sendiri. Layanan merujuk data dari layanan lain melalui ID, tanpa kunci asing (_foreign key_) lintas basis data. Saat membuat pemesanan, `ticket-service` menyalin data kursi dan harga agar pemesanan tidak hanya bergantung pada katalog yang dapat berubah.
+1. **Select:** the gateway combines seat geometry from `cinema-service` with availability from `ticket-service`.
+2. **Reserve:** `ticket-service` validates seats, acquires Redis locks, and saves a `PENDING` booking. A unique `(showtime_id, seat_id)` constraint rejects conflicting seat records.
+3. **Pay:** the customer opens a Xendit invoice. A webhook or status-sync request checks the payment result.
+4. **Confirm:** for a valid reservation, `ticket-service` confirms payment, issues tickets, and publishes notification events.
+5. **Expire or refund:** scheduled reconciliation handles expired bookings and pending refunds. Tickets remain valid while a refund is pending.
 
-Perangkat pemantauan membantu pengembang menelusuri permintaan dan mengamati kondisi layanan. Layanan mengirim data telemetri ke **OTel Collector**. **Tempo** menyimpan jejak permintaan, **Prometheus** mengumpulkan metrik, dan **Grafana** menampilkan keduanya.
+Services send telemetry through OTel Collector. Tempo stores traces, Prometheus collects metrics, and Grafana displays both.
 
-### Alur pemesanan
+Details: [API contract](./docs/openapi.yaml) · [Data model](./docs/ERD.md) · [Domain terminology](./CONTEXT.md) · [Load-testing scenarios](./benchmark/README.md)
 
-1. **Pilih jadwal dan kursi.** Gateway menggabungkan denah dari `cinema-service` dan ketersediaan dari `ticket-service`.
-2. **Cadangkan kursi.** `ticket-service` memvalidasi kursi, memperoleh kunci Redis, lalu menyimpan pemesanan berstatus `PENDING` beserta data kursinya. Batasan unik `(showtime_id, seat_id)` menolak catatan kursi yang bertabrakan.
-3. **Bayar pesanan.** Server membuat tagihan Xendit dan mengembalikan URL halaman pembayaran. Membuka halaman pembayaran atau kembali ke aplikasi belum berarti pembayaran berhasil.
-4. **Konfirmasi pembayaran.** Xendit mengirim webhook melalui gateway, atau aplikasi meminta server memeriksa status terbaru ke Xendit. Jika pembayaran berhasil dan pemesanan masih valid, `ticket-service` mengubah status menjadi `CONFIRMED`, menerbitkan tiket, lalu mengirim pesan notifikasi.
-5. **Tangani kedaluwarsa atau pengembalian dana.** Sistem mengakhiri pemesanan yang melewati batas waktu pembayaran. Untuk pengembalian dana, sistem memakai status `REFUND_PENDING` sambil menunggu hasil dari penyedia pembayaran. Selama proses ini, tiket tetap berlaku dan kursi tetap menjadi hak pelanggan. Pemeriksaan berkala menangani pemesanan kedaluwarsa dan pengembalian dana yang tertunda.
+## 5. Trade-offs
 
-Kontrak API: [`docs/openapi.yaml`](./docs/openapi.yaml). Model data: [`docs/ERD.md`](./docs/ERD.md). Istilah domain: [`CONTEXT.md`](./CONTEXT.md).
+| Decision                       | Benefit                                                    | Current limitation                                                                           |
+| ------------------------------ | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Microservices and gRPC         | Explicit service boundaries and contracts                  | More processes and coordination than a modular monolith                                      |
+| Database per service           | Separate data ownership                                    | No cross-database foreign keys or shared transaction; one PostgreSQL instance                |
+| Redis locks and DB constraints | Coordinate reservations and enforce seat-record uniqueness | One Redis instance; reservations fail when it is unavailable                                 |
+| Asynchronous payments          | Follow the provider's payment and refund results           | Late payments after reservation expiry still need a recovery workflow                        |
+| RabbitMQ notifications         | Separate email delivery from booking logic                 | Best-effort delivery; no transactional outbox or persistent retry, and consumers use `noAck` |
+| Seat-map fallback              | Keep the layout visible during booking-service failures    | Seats may appear available; the server validates them again when reserving                   |
+| TypeORM `synchronize`          | Quick schema changes during development                    | No versioned migration workflow yet                                                          |
 
-## 5. Pertimbangan Desain
+The Compose setup targets development and demonstration. High availability and production capacity remain unverified.
 
-Setiap keputusan desain memiliki manfaat dan konsekuensi (_trade-off_). Tabel berikut merangkum pilihan serta batasan implementasi saat ini.
+## 6. Future Actions
 
-| Keputusan                                            | Manfaat                                                                                      | Konsekuensi / batasan saat ini                                                                                                                                                                                                  |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Layanan terpisah (_microservices_) dengan gateway    | Memperjelas tanggung jawab dan kontrak komunikasi setiap layanan                             | Menambah proses, konfigurasi, dan titik kegagalan dibandingkan satu aplikasi dengan modul terpisah. Pendekatan ini tidak selalu lebih tepat untuk aplikasi kecil.                                                               |
-| Basis data per layanan                               | Memisahkan kepemilikan data                                                                  | Tidak menyediakan kunci asing atau transaksi tunggal lintas layanan. Tiga basis data masih berbagi satu instans PostgreSQL.                                                                                                     |
-| REST eksternal, gRPC internal                        | Memungkinkan peramban memakai API umum dan layanan internal memakai kontrak Protocol Buffers | Gateway menambah satu lapisan komunikasi. Pengembang perlu menyelaraskan perubahan kontrak antarlayanan.                                                                                                                        |
-| Kunci Redis dan batasan unik PostgreSQL              | Membatasi perebutan kursi dan menjaga keunikan catatan kursi                                 | Sistem memakai satu instans Redis dan menolak reservasi ketika Redis tidak tersedia. Konfigurasi ini belum menyediakan mekanisme penguncian dengan beberapa simpul independen.                                                  |
-| Pembayaran dan pengembalian dana asinkron            | Menyelaraskan status dengan konfirmasi penyedia pembayaran                                   | Webhook dapat terlambat sehingga sistem perlu memeriksa ulang status. Sistem tidak menerbitkan tiket untuk pembayaran setelah reservasi kedaluwarsa; kasus ini masih membutuhkan penanganan pengembalian dana lanjutan.         |
-| Surel melalui RabbitMQ                               | Memisahkan pengiriman surel dari layanan pemesanan                                           | Sistem belum menjamin pengiriman ulang saat terjadi kegagalan. Sistem belum mencatat pesan dan perubahan data dalam satu transaksi (_transactional outbox_). Penerima pesan memakai `noAck` tanpa konfirmasi pemrosesan manual. |
-| Tetap menampilkan denah saat layanan pemesanan gagal | Memungkinkan pelanggan melihat katalog dan bentuk studio                                     | Aplikasi dapat menampilkan kursi sebagai tersedia ketika gagal mengambil status pemesanan. Server tetap memvalidasi kursi saat pelanggan membuat reservasi.                                                                     |
-| TypeORM `synchronize`                                | Memudahkan perubahan skema selama pengembangan                                               | Sistem belum mengelola perubahan skema melalui migrasi terurut untuk lingkungan produksi.                                                                                                                                       |
-
-## 6. Rencana Pengembangan
-
-- **Pemulihan pembayaran:** menambahkan alur penanganan pembayaran setelah reservasi kedaluwarsa, termasuk catatan pembayaran dan pengembalian dana yang memudahkan penelusuran.
-- **Keandalan notifikasi:** menambahkan pencatatan pesan dalam transaksi, konfirmasi pemrosesan manual, percobaan ulang terbatas, dan antrean pesan gagal (_dead-letter queue_).
-- **Pengelolaan data:** mengganti sinkronisasi skema otomatis dengan migrasi, lalu menguji pencadangan dan pemulihan basis data.
-- **Pengujian kegagalan dan beban:** memperluas pengujian webhook berulang, mulai ulang layanan saat pemesanan berlangsung, gangguan Redis/RabbitMQ, dan perebutan kursi. Memublikasikan hasil uji kinerja beserta kondisi pengujiannya.
-- **Pengalaman pengguna:** menandai kursi yang belum memiliki status ketersediaan terverifikasi. Melengkapi pengujian alur pemesanan dengan papan ketik, pembaca layar, AXE, dan perangkat seluler.
-
-Daftar ini merupakan arah pengembangan, bukan fitur yang sudah tersedia.
+- Handle late payments with an explicit refund and recovery workflow.
+- Add a transactional outbox, manual acknowledgments, retries, and a dead-letter queue.
+- Replace schema synchronization with migrations and test backup recovery.
+- Expand failure and concurrency tests; publish reproducible benchmark results.
+- Mark unknown seat availability clearly and complete accessibility and mobile checks.
