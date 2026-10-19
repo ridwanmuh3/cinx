@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "docker compose -f infra/docker-compose.yml up -d --wait postgres redis rabbitmq && PG_HOST=127.0.0.1 PG_PASSWORD=postgres REDIS_URL=redis://127.0.0.1:6379 RMQ_URL=amqp://127.0.0.1:5672 USER_HOST=127.0.0.1 CINEMA_HOST=127.0.0.1 TICKET_HOST=127.0.0.1 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 node --env-file-if-exists=.env node_modules/turbo/bin/turbo run dev --env-mode=loose",
     "lint": "turbo run lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
