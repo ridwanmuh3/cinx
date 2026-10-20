@@ -32,7 +32,10 @@ jobs:
           - gateway
           - user-service
           - cinema-service
+          - booking-service
+          - payment-service
           - ticket-service
+          - notification-service
           - web
     steps:
       - uses: actions/checkout@v7
