@@ -8,6 +8,8 @@ coverage/
 test-results/
 playwright-report/
 apps/web/e2e/.auth/
+benchmark/.data/
+benchmark/results/
 
 # AI tooling / assistants
 .cursor/

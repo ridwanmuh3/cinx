@@ -50,28 +50,44 @@ async function bootstrap() {
   });
 
   // Rate limit auth + payment endpoints against brute force / abuse.
+  // Controlled load tests run from one IP, so they would otherwise measure
+  // this limiter instead of the services; disable it only for those runs.
   app.set('trust proxy', 1);
-  const rateLimit = (await import('express-rate-limit')).default;
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 20,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
-    message: { statusCode: 429, message: 'Too many attempts, retry later' },
-  });
-  const payLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    limit: 10,
-    standardHeaders: 'draft-7',
-    legacyHeaders: false,
-    message: { statusCode: 429, message: 'Too many payment attempts' },
-  });
-  app.use('/api/v1/auth/login', authLimiter);
-  app.use('/api/v1/auth/register', authLimiter);
-  app.use('/api/v1/bookings', payLimiter);
-  // Public door-scan lookup: the ticket code is the only credential, so
-  // throttle enumeration attempts hard (10/min/IP).
-  app.use('/api/v1/tickets', payLimiter);
+  const rateLimitEnabled =
+    (process.env.RATE_LIMIT_ENABLED ?? 'true').toLowerCase() !== 'false';
+
+  if (rateLimitEnabled) {
+    const rateLimit = (await import('express-rate-limit')).default;
+    const envInt = (name: string, fallback: number): number => {
+      const value = Number(process.env[name]);
+      return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+    };
+
+    const authLimiter = rateLimit({
+      windowMs: envInt('RATE_LIMIT_AUTH_WINDOW_MS', 15 * 60 * 1000),
+      limit: envInt('RATE_LIMIT_AUTH_MAX', 20),
+      standardHeaders: 'draft-7',
+      legacyHeaders: false,
+      message: { statusCode: 429, message: 'Too many attempts, retry later' },
+    });
+    const payLimiter = rateLimit({
+      windowMs: envInt('RATE_LIMIT_PAY_WINDOW_MS', 60 * 1000),
+      limit: envInt('RATE_LIMIT_PAY_MAX', 10),
+      standardHeaders: 'draft-7',
+      legacyHeaders: false,
+      message: { statusCode: 429, message: 'Too many payment attempts' },
+    });
+    app.use('/api/v1/auth/login', authLimiter);
+    app.use('/api/v1/auth/register', authLimiter);
+    app.use('/api/v1/bookings', payLimiter);
+    // Public door-scan lookup: the ticket code is the only credential, so
+    // throttle enumeration attempts hard (10/min/IP).
+    app.use('/api/v1/tickets', payLimiter);
+  } else {
+    console.warn(
+      '[gateway] WARNING: rate limiting is disabled (RATE_LIMIT_ENABLED=false)',
+    );
+  }
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port);
