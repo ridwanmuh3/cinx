@@ -1,0 +1,92 @@
+# Load-test overrides for the full containerized stack.
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.benchmark.yml \
+#     up -d --build
+#
+# This file deliberately does four things:
+#   1. disables the gateway IP rate limiter (all k6 traffic comes from one IP)
+#   2. points payment-service at the local mock Xendit API
+#   3. adds the mock provider and a one-shot benchmark data seeder
+#   4. keeps notification emails in dry-run mode
+#
+# Do not use this file in production.
+
+services:
+  gateway:
+    environment:
+      RATE_LIMIT_ENABLED: 'false'
+
+  payment-service:
+    environment:
+      XENDIT_API_URL: http://xendit-mock:8099
+      XENDIT_SECRET_KEY: benchmark-secret
+      XENDIT_WEBHOOK_TOKEN: benchmark-webhook-token
+      XENDIT_RETURN_URL: http://localhost:5173
+    depends_on:
+      xendit-mock:
+        condition: service_healthy
+
+  # Keep the event consumer in the loop, but don't call the external email
+  # provider once per confirmed booking during a load test.
+  notification-service:
+    environment:
+      RESEND_API_KEY: ''
+
+  xendit-mock:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ['node', 'server.mjs']
+    environment:
+      PORT: 8099
+      GATEWAY_WEBHOOK_URL: http://gateway:3000/api/v1/payments/xendit/webhook
+      XENDIT_WEBHOOK_TOKEN: benchmark-webhook-token
+      AUTO_SETTLE: 'true'
+      SETTLE_DELAY_MS: ${MOCK_XENDIT_SETTLE_DELAY_MS:-1000}
+      LATENCY_MS: ${MOCK_XENDIT_LATENCY_MS:-0}
+      FAIL_RATE: ${MOCK_XENDIT_FAIL_RATE:-0}
+      RATE_LIMIT_RATE: ${MOCK_XENDIT_RATE_LIMIT_RATE:-0}
+      DUPLICATE_WEBHOOK: ${MOCK_XENDIT_DUPLICATE_WEBHOOK:-false}
+    volumes:
+      - ./benchmark/mock-xendit:/app:ro
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8099/health']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  benchmark-seed:
+    profiles: [benchmark-seed]
+    user: '${UID:-1000}:${GID:-1000}'
+    build:
+      context: .
+      dockerfile: infra/seed.Dockerfile
+    environment:
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      PG_CINEMA_DB: cinema_db
+      GATEWAY_URL: http://gateway:3000/api/v1
+      BENCH_CATALOG_FILE: /app/benchmark/.data/catalog.json
+      BENCH_TOKEN_FILE: /app/benchmark/.data/tokens.json
+      BENCH_USERS: ${BENCH_USERS:-1000}
+      BENCH_USER_PREFIX: ${BENCH_USER_PREFIX:-bench-user}
+      BENCH_SEED_CONCURRENCY: ${BENCH_SEED_CONCURRENCY:-16}
+    command:
+      - sh
+      - -c
+      - pnpm --filter @ticketing/cinema-service bench:seed && node scripts/benchmark-users.mjs
+    volumes:
+      - ./benchmark/.data:/app/benchmark/.data
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    restart: 'no'

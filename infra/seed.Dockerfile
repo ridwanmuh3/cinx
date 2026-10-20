@@ -9,6 +9,8 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY packages/ packages/
 COPY apps/ apps/
+COPY benchmark/ benchmark/
+COPY scripts/ scripts/
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm turbo run build --filter=@ticketing/user-service... --filter=@ticketing/cinema-service...

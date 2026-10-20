@@ -11,7 +11,13 @@
 
 import { sleep } from 'k6';
 import { baseOptions } from './options.js';
-import { auth, getShowtimeId, getAvailableSeatIds, holdSeats } from './lib.js';
+import {
+  auth,
+  catalog,
+  getShowtimeId,
+  getAvailableSeatIds,
+  holdSeats,
+} from './lib.js';
 
 const VUS = Number(__ENV.VUS || 50);
 
@@ -22,7 +28,7 @@ export const options = {
   // request failure rate stays within budget (unexpected 5xx, etc.).
   thresholds: {
     ...baseOptions.thresholds,
-    hold_errors: ['count<0'], // populated only by expected 409/410
+    hold_errors: ['count>=0'], // populated only by expected 409/410
   },
   scenarios: {
     contention: {
@@ -38,11 +44,15 @@ export const options = {
 
 export default function () {
   const token = auth();
-  const showtimeId = getShowtimeId();
 
-  // Grab a single shared seat id (fixed per showtime, so every VU contends).
-  const seats = getAvailableSeatIds(showtimeId);
-  const contestedSeat = [seats[0]];
+  // Prefer the benchmark catalog: every VU targets the exact same seat so
+  // the redlock path is genuinely contended. Fall back to the public API for
+  // older setups without a catalog file.
+  const showtimeId = catalog.length > 0 ? catalog[0].id : getShowtimeId();
+  const contestedSeat =
+    catalog.length > 0
+      ? [catalog[0].seatIds[0]]
+      : [getAvailableSeatIds(showtimeId)[0]];
 
   // Ignore the booking id — the point is to observe lock contention, not to
   // complete a payment. holdSeats records hold_errors on 409/410.

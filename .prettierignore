@@ -7,3 +7,5 @@ docs
 infra
 .angular
 graphify-out
+benchmark/.data
+benchmark/results
