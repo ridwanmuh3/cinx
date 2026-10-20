@@ -39,6 +39,26 @@ const grpcLoader = {
         },
       },
       {
+        name: SERVICE_NAMES.BOOKING,
+        transport: Transport.GRPC,
+        options: {
+          package: GRPC_PACKAGES.BOOKING,
+          protoPath: protoPath('booking.proto'),
+          url: `${process.env.BOOKING_HOST ?? '127.0.0.1'}:${Number(process.env.BOOKING_PORT) || GRPC_PORTS.BOOKING}`,
+          loader: grpcLoader,
+        },
+      },
+      {
+        name: SERVICE_NAMES.PAYMENT,
+        transport: Transport.GRPC,
+        options: {
+          package: GRPC_PACKAGES.PAYMENT,
+          protoPath: protoPath('payment.proto'),
+          url: `${process.env.PAYMENT_HOST ?? '127.0.0.1'}:${Number(process.env.PAYMENT_PORT) || GRPC_PORTS.PAYMENT}`,
+          loader: grpcLoader,
+        },
+      },
+      {
         name: SERVICE_NAMES.TICKET,
         transport: Transport.GRPC,
         options: {

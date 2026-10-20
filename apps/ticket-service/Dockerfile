@@ -23,5 +23,5 @@ WORKDIR /app
 COPY --from=prod /prod .
 COPY --from=build /app/apps/ticket-service/dist ./dist
 USER node
-EXPOSE 3003
+EXPOSE 50053
 CMD ["node", "dist/main.js"]

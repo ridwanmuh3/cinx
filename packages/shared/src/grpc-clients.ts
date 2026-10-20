@@ -29,15 +29,21 @@ import {
   PaginatedBookings,
   BookingAvailabilityRequest,
   BookingAvailabilityResponse,
+  BookingGetRequest,
+  BookingCancelRequest,
+  BookingListRequest,
+  ChargeContext,
   PaymentChargeRequest,
   PaymentChargeResponse,
   PaymentWebhookRequest,
   PaymentSyncRequest,
+  PaymentGetRequest,
+  PaymentDto,
   TicketList,
+  TicketListRequest,
   TicketLookupDto,
-  BookingGetRequest,
-  BookingCancelRequest,
-  BookingListRequest,
+  TicketIssueRequest,
+  VoidTicketsRequest,
 } from './contracts';
 import { HealthResponse } from './contracts/health';
 import { Empty } from './contracts/empty';
@@ -70,7 +76,7 @@ export interface CinemaServiceStub {
   GetSeatMap(req: IdRequest): Observable<ShowtimeSeatMap>;
 }
 
-export interface TicketServiceStub {
+export interface BookingServiceStub {
   Ping(req: Empty): Observable<HealthResponse>;
   Hold(req: HoldSeatsRequest): Observable<HoldResponse>;
   Cancel(req: BookingCancelRequest): Observable<BookingDto>;
@@ -79,10 +85,21 @@ export interface TicketServiceStub {
   Availability(
     req: BookingAvailabilityRequest,
   ): Observable<BookingAvailabilityResponse>;
+  PrepareCharge(req: BookingGetRequest): Observable<ChargeContext>;
+}
+
+export interface PaymentServiceStub {
+  Ping(req: Empty): Observable<HealthResponse>;
   Charge(req: PaymentChargeRequest): Observable<PaymentChargeResponse>;
   Webhook(req: PaymentWebhookRequest): Observable<Empty>;
-  SyncPaymentStatus(req: PaymentSyncRequest): Observable<BookingDto>;
-  IssueTickets(req: BookingGetRequest): Observable<TicketList>;
-  ListTickets(req: BookingGetRequest): Observable<TicketList>;
+  SyncPaymentStatus(req: PaymentSyncRequest): Observable<PaymentDto>;
+  Get(req: PaymentGetRequest): Observable<PaymentDto>;
+}
+
+export interface TicketServiceStub {
+  Ping(req: Empty): Observable<HealthResponse>;
+  ListTickets(req: TicketListRequest): Observable<TicketList>;
   GetTicketByCode(req: { code: string }): Observable<TicketLookupDto>;
+  IssueTickets(req: TicketIssueRequest): Observable<TicketList>;
+  VoidTickets(req: VoidTicketsRequest): Observable<Empty>;
 }

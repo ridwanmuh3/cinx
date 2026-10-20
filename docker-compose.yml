@@ -37,10 +37,15 @@ services:
       PORT: 3000
       USER_HOST: user-service
       CINEMA_HOST: cinema-service
+      BOOKING_HOST: booking-service
+      PAYMENT_HOST: payment-service
       TICKET_HOST: ticket-service
       USER_PORT: 3001
       CINEMA_PORT: 3002
-      TICKET_PORT: 3003
+      BOOKING_PORT: 50054
+      PAYMENT_PORT: 50055
+      TICKET_PORT: 50053
+      RMQ_URL: amqp://rabbitmq:5672
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       OTEL_SERVICE_NAME: gateway
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
@@ -54,6 +59,10 @@ services:
       user-service:
         condition: service_healthy
       cinema-service:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      payment-service:
         condition: service_healthy
       ticket-service:
         condition: service_healthy
@@ -133,22 +142,26 @@ services:
       retries: 5
       start_period: 20s
 
-  ticket-service:
+  booking-service:
     build:
       context: .
-      dockerfile: apps/ticket-service/Dockerfile
-    image: ghcr.io/ridwanmuh3/ticketing-cinema/ticket-service:${IMAGE_TAG:-latest}
+      dockerfile: apps/booking-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/booking-service:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
-      PORT: 3003
+      PORT: 50054
       PG_HOST: postgres
       PG_PORT: 5432
       PG_USER: postgres
       PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      PG_BOOKING_DB: booking_db
       REDIS_URL: redis://redis:6379
+      USER_HOST: user-service
+      USER_PORT: 3001
       CINEMA_HOST: cinema-service
       CINEMA_PORT: 3002
-      OTEL_SERVICE_NAME: ticket-service
+      RMQ_URL: amqp://rabbitmq:5672
+      OTEL_SERVICE_NAME: booking-service
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
       OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
@@ -159,7 +172,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      user-service:
+        condition: service_healthy
       cinema-service:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test:
@@ -167,7 +184,122 @@ services:
           'CMD',
           'node',
           '-e',
-          "const n=require('net');const s=n.connect(3003,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+          "const n=require('net');const s=n.connect(50054,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: apps/payment-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/payment-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 50055
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      PG_PAYMENT_DB: payment_db
+      RMQ_URL: amqp://rabbitmq:5672
+      XENDIT_API_URL: ${XENDIT_API_URL:-https://api.xendit.co}
+      XENDIT_SECRET_KEY: ${XENDIT_SECRET_KEY:-}
+      XENDIT_WEBHOOK_TOKEN: ${XENDIT_WEBHOOK_TOKEN:-}
+      XENDIT_RETURN_URL: ${XENDIT_RETURN_URL:-}
+      EMAIL_BASE_URL: ${EMAIL_BASE_URL:-http://localhost:5173}
+      OTEL_SERVICE_NAME: payment-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(50055,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ticket-service:
+    build:
+      context: .
+      dockerfile: apps/ticket-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/ticket-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 50053
+      PG_HOST: postgres
+      PG_PORT: 5432
+      PG_USER: postgres
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      PG_TICKET_DB: ticket_db
+      RMQ_URL: amqp://rabbitmq:5672
+      OTEL_SERVICE_NAME: ticket-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(50053,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: apps/notification-service/Dockerfile
+    image: ghcr.io/ridwanmuh3/ticketing-cinema/notification-service:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      PORT: 3004
+      RMQ_URL: amqp://rabbitmq:5672
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-CinX <no-reply@example.com>}
+      EMAIL_BASE_URL: ${EMAIL_BASE_URL:-http://localhost:5173}
+      OTEL_SERVICE_NAME: notification-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-60000}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    networks: [internal]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "const n=require('net');const s=n.connect(3004,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))",
         ]
       interval: 10s
       timeout: 5s

@@ -20,11 +20,14 @@ async function bootstrap() {
     transport: Transport.RMQ,
     options: {
       urls: [RMQ.URL],
-      queue: RMQ.NOTIFICATION_QUEUE,
+      queue: RMQ.QUEUES.NOTIFICATION_EVENTS,
       queueOptions: { durable: true },
+      // Email is best-effort; a transient mail failure must not requeue
+      // forever. (Event handlers intentionally never throw.)
       noAck: true,
-      exchange: RMQ.EXCHANGE,
-      exchangeType: RMQ.EXCHANGE_TYPE,
+      exchange: RMQ.INTERNAL_EXCHANGE,
+      exchangeType: RMQ.INTERNAL_EXCHANGE_TYPE,
+      wildcards: true,
     },
   });
 

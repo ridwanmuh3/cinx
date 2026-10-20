@@ -35,6 +35,15 @@ pnpm --filter @ticketing/cinema-service seed
 
 The catalog seed deletes existing catalog data and uses fixed showtime dates. Use a demo database and update showtimes through the admin pages before booking.
 
+The domain split introduced `booking_db` and `payment_db`. There are no migrations, so after pulling this change reset the local database volume once:
+
+```bash
+docker compose -f infra/docker-compose.yml down -v
+docker compose -f infra/docker-compose.yml up -d --wait
+```
+
+Then seed the catalog again. `pnpm dev` starts the same infrastructure if it is not already running.
+
 </details>
 
 ## 2. Features
@@ -72,24 +81,35 @@ flowchart TB
     subgraph Services["NestJS services"]
         Gateway -->|gRPC| User["user-service · accounts"]
         Gateway -->|gRPC| Cinema["cinema-service · catalog"]
-        Gateway -->|gRPC| Ticket["ticket-service · bookings and payments"]
-        Ticket -->|validate seats| Cinema
-        Ticket -->|customer contact| User
-        Ticket -->|events| MQ["RabbitMQ"]
+        Gateway -->|gRPC commands| Booking["booking-service · bookings + seat locks"]
+        Gateway -->|gRPC commands| Payment["payment-service · payments + Xendit"]
+        Gateway -->|gRPC commands| Ticket["ticket-service · tickets"]
+        Booking -->|validate seats / read catalog| Cinema
+        Booking -->|customer contact| User
+        Booking -->|booking.* + payment.received| MQ["RabbitMQ · ticketing.internal"]
+        Payment -->|payment.*| MQ
+        Ticket -->|tickets.*| MQ
+        MQ -->|payment.*| Booking
+        MQ -->|booking.*| Payment
+        MQ -->|booking.confirmed / refunded / cancelled / expired| Ticket
         MQ --> Notification["notification-service · email"]
     end
 
     subgraph PG["PostgreSQL · one instance"]
         UserDB[(user_db)]
         CinemaDB[(cinema_db)]
+        BookingDB[(booking_db)]
+        PaymentDB[(payment_db)]
         TicketDB[(ticket_db)]
     end
 
     User --> UserDB
     Cinema --> CinemaDB
+    Booking --> BookingDB
+    Payment --> PaymentDB
     Ticket --> TicketDB
-    Ticket -->|seat locks| Redis[(Redis)]
-    Ticket -->|invoice / status / refund| Xendit["Xendit"]
+    Booking -->|seat locks| Redis[(Redis)]
+    Payment -->|invoice / status / refund| Xendit["Xendit"]
     Web -->|hosted checkout| Xendit
     Xendit -->|webhook| Gateway
     Notification --> Resend["Resend"]
@@ -97,11 +117,11 @@ flowchart TB
 
 ### Booking flow
 
-1. **Select:** the gateway combines seat geometry from `cinema-service` with availability from `ticket-service`.
-2. **Reserve:** `ticket-service` validates seats, acquires Redis locks, and saves a `PENDING` booking. A unique `(showtime_id, seat_id)` constraint rejects conflicting seat records.
-3. **Pay:** the customer opens a Xendit invoice. A webhook or status-sync request checks the payment result.
-4. **Confirm:** for a valid reservation, `ticket-service` confirms payment, issues tickets, and publishes notification events.
-5. **Expire or refund:** scheduled reconciliation handles expired bookings and pending refunds. Tickets remain valid while a refund is pending.
+1. **Select:** the gateway combines seat geometry from `cinema-service` with availability from `booking-service`.
+2. **Reserve:** `booking-service` validates seats with `cinema-service`, acquires Redis locks, and saves a `PENDING` booking plus seat snapshots. A unique `(showtime_id, seat_id)` constraint rejects conflicting seat records.
+3. **Pay:** the gateway validates the hold with `booking.PrepareCharge`, then asks `payment-service` to create a Xendit invoice. A webhook or status-sync request checks the payment result.
+4. **Confirm:** `payment-service` publishes `payment.settled`. `booking-service` records `paid_at` and publishes `booking.confirmed`; `ticket-service` issues tickets and publishes `tickets.issued`; `booking-service` then moves the booking to `CONFIRMED`. Notification events are emitted along the way.
+5. **Expire or refund:** `booking-service` runs expiry, confirmation-retry, and refund-retry crons. Late settlements are refunded automatically, and tickets are voided only after `payment.refunded`.
 
 Services send telemetry through OTel Collector. Tempo stores traces, Prometheus collects metrics, and Grafana displays both.
 
@@ -114,8 +134,8 @@ Details: [API contract](./docs/openapi.yaml) · [Data model](./docs/ERD.md) · [
 | Microservices and gRPC         | Explicit service boundaries and contracts                  | More processes and coordination than a modular monolith                                      |
 | Database per service           | Separate data ownership                                    | No cross-database foreign keys or shared transaction; one PostgreSQL instance                |
 | Redis locks and DB constraints | Coordinate reservations and enforce seat-record uniqueness | One Redis instance; reservations fail when it is unavailable                                 |
-| Asynchronous payments          | Follow the provider's payment and refund results           | Late payments after reservation expiry still need a recovery workflow                        |
-| RabbitMQ notifications         | Separate email delivery from booking logic                 | Best-effort delivery; no transactional outbox or persistent retry, and consumers use `noAck` |
+| Asynchronous payments          | Follow the provider's payment and refund results           | Provider webhooks can be late; status sync and retry crons converge the state                |
+| RabbitMQ domain events         | Decouple booking, payment, and ticket services             | Durable queues use manual ack, but there is no transactional outbox or dead-letter queue yet |
 | Seat-map fallback              | Keep the layout visible during booking-service failures    | Seats may appear available; the server validates them again when reserving                   |
 | TypeORM `synchronize`          | Quick schema changes during development                    | No versioned migration workflow yet                                                          |
 
@@ -123,8 +143,8 @@ The Compose setup targets development and demonstration. High availability and p
 
 ## 6. Future Actions
 
-- Handle late payments with an explicit refund and recovery workflow.
-- Add a transactional outbox, manual acknowledgments, retries, and a dead-letter queue.
+- Add a transactional outbox and a dead-letter queue with bounded retries.
+- Exercise refund and late-settlement paths against Xendit in staging.
 - Replace schema synchronization with migrations and test backup recovery.
 - Expand failure and concurrency tests; publish reproducible benchmark results.
 - Mark unknown seat availability clearly and complete accessibility and mobile checks.

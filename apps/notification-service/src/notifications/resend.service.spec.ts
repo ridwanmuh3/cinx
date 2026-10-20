@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 import { ResendService } from './resend.service';
-import { BookingConfirmationData, PaymentReceiptData } from '@ticketing/shared';
+import { TicketsIssuedData, PaymentReceivedData } from '@ticketing/shared';
 
 function makeResend(dryRun = true): ResendService {
   const svc = new ResendService();
@@ -34,7 +34,7 @@ describe('ResendService', () => {
         { code: 'TKT-000001', seatId: 's1', rowLabel: 'A', seatNumber: 7 },
       ],
       confirmedAt: '2026-08-14T10:00:00.000Z',
-    } as BookingConfirmationData);
+    } as TicketsIssuedData);
     expect(res.accepted).toBe(true);
     expect(res.messageId).toMatch(/dry-run/);
     expect(res.error).toBeNull();
@@ -55,7 +55,7 @@ describe('ResendService', () => {
       movieTitle: 'M',
       theaterName: 'T',
       startsAt: '2026-08-20T18:00:00.000Z',
-    } as PaymentReceiptData);
+    } as PaymentReceivedData);
     expect(res.accepted).toBe(true);
   });
 });

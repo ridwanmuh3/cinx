@@ -14,18 +14,26 @@ Browser (Vue 3 SPA :5173)
    ▼
 REST Gateway :3000  ── BFF tanpa state, tanpa DB (apps/gateway)
    │  gRPC (packages/shared/proto + grpc-clients.ts)
-   ├──► user-service   :3001 ──► user_db   (PostgreSQL)
-   ├──► cinema-service :3002 ──► cinema_db (PostgreSQL)
-   ├──► ticket-service :3003 ──► ticket_db (PostgreSQL) + Redis (redlock)
-   │         │
-   │         └── events ──► RabbitMQ fanout ──► notification-service (Resend email)
-   └──► Xendit API (invoice hosted) ◄── webhook ──┘
+   ├──► user-service    ──► user_db    (PostgreSQL)
+   ├──► cinema-service  ──► cinema_db  (PostgreSQL)
+   ├──► booking-service ──► booking_db (PostgreSQL) + Redis (seat locks)
+   ├──► payment-service ──► payment_db (PostgreSQL) + Xendit API
+   └──► ticket-service  ──► ticket_db  (PostgreSQL)
+              │
+              └── domain events ──► RabbitMQ ticketing.internal (topic)
+                                      ├──► booking-service
+                                      ├──► payment-service
+                                      ├──► ticket-service
+                                      └──► notification-service (Resend email)
+Xendit ── webhook ──► Gateway ──► payment-service
 Semua service ──OTLP──► otel-collector ──► Tempo (traces) + Prometheus ──► Grafana
 ```
 
 Pola yang dipakai: **API Gateway / BFF + Microservices dengan
 database-per-service + Orchestration-based Saga (manual) + Distributed lock**.
-Frontend tidak pernah tahu ada 4 service — dia hanya bicara REST ke satu origin.
+Frontend tidak pernah tahu ada enam service — dia hanya bicara REST ke satu
+origin. Gateway adalah satu-satunya router perintah sinkron; booking, payment,
+dan ticket berkoordinasi lewat event.
 
 ---
 
@@ -47,16 +55,19 @@ panggilan gRPC.
 
 ### b) Database-per-Service + Referensi Logis Antar-DB
 
-`user_db`, `cinema_db`, `ticket_db` terpisah fisik (dibuat via
-`infra/init/init.sql`). `ticket_db` menyimpan `showtime_id`/`seat_id`
-**tanpa FK**, tapi **snapshot** data kursi (`BookingSeat`) saat hold.
+`user_db`, `cinema_db`, `booking_db`, `payment_db`, dan `ticket_db` terpisah
+fisik (dibuat via `infra/init/init.sql`). `booking_db` memiliki `bookings` dan
+`booking_seats`; `payment_db` hanya `payments`; `ticket_db` hanya `tickets`.
+Kolom `user_id`/`showtime_id`/`seat_id`/`booking_id` adalah **referensi logis
+tanpa FK lintas DB**, dan data kursi/film di-snapshot saat hold.
 
-- ✅ Ini yang membuat microservice benar-benar independen: ticket-service bisa
-  di-deploy/migrasi tanpa menyentuh cinema-service — inti dari *data ownership*.
+- ✅ Ini yang membuat microservice benar-benar independen: booking, payment,
+  dan ticket bisa di-deploy/migrasi tanpa menyentuh cinema-service — inti dari
+  *data ownership*.
 - ❌ **Trade-off:** tidak ada join lintas DB dan FK integrity. Kompensasinya:
-  - Validasi kursi tetap lintas service: `hold()` memanggil
-    `seatAvailability.validateSeats()` (ticket-service → gRPC → cinema-service)
-    sebelum mengunci.
+  - Validasi kursi tetap lintas service: `hold()` di booking-service memanggil
+    `seatAvailability.validateSeats()` (gRPC → cinema-service) sebelum
+    mengunci.
   - Snapshot (`BookingSeat`) menjamin riwayat booking tetap utuh dan akurat
     bahkan jika data kursi di cinema-service berubah/hilang setelahnya —
     konsistensi historis lebih penting daripada normalisasi.
@@ -66,7 +77,8 @@ panggilan gRPC.
 ### c) gRPC untuk inter-service, REST untuk klien
 
 Stub ter-typing di `packages/shared/src/grpc-clients.ts` (`UserServiceStub`,
-`CinemaServiceStub`, `TicketServiceStub`) + proto di `packages/shared/proto`.
+`CinemaServiceStub`, `BookingServiceStub`, `PaymentServiceStub`,
+`TicketServiceStub`) + proto di `packages/shared/proto`.
 Trade-off klasik: gRPC memberi kontrak biner yang ketat dan efisien, tapi tidak
 bisa dipakai browser langsung — itulah kenapa gateway wajib ada.
 
@@ -74,36 +86,50 @@ bisa dipakai browser langsung — itulah kenapa gateway wajib ada.
 
 ## 3. Jantung Sistem: Booking Flow (Two-Phase Hold→Pay)
 
-Sumber: `apps/ticket-service/src/bookings/bookings.service.ts`
+Sumber: `apps/booking-service/src/bookings/bookings.service.ts`,
+`apps/payment-service/src/payments/payments.service.ts`, dan
+`apps/ticket-service/src/tickets/tickets.service.ts`.
 
 ```
-1. HOLD    POST /bookings/holds
+1. HOLD    POST /bookings/holds → gateway → booking.Hold
            ├─ validasi kursi ke cinema-service (gRPC)
            ├─ redlock multi-lock(["seat:{showtimeId}:{seatId}", ...], TTL 5 menit)
            │    gagal → 409 "Some seats are already held"
            │    Redis mati → 503 "Seat lock unavailable" (BUKAN 409!)
-           └─ sukses → INSERT Booking(status=PENDING, expiresAt=+5m) + snapshot seats
-2. PAY     POST /bookings/:id/pay → Xendit invoice (hosted) → checkoutUrl
-3. WEBHOOK Xendit → gateway → ticket-service
-           ├─ PAID    → Booking CONFIRMED + buat tiket TKT-XXXXXX (idempotent)
-           └─ EXPIRED → Booking CANCELLED + release locks
-4. REFUND  POST /bookings/:id/cancel pada booking CONFIRMED
-           ├─ POST /refunds (Xendit) — refund bersifat async
-           ├─ SUCCEEDED → REFUNDED: tiket di-void, kursi bisa dijual lagi
+           └─ sukses → INSERT Booking(status=PENDING, expiresAt=+5m)
+                        + snapshot seats/movie/theater/start
+2. PAY     POST /bookings/:id/pay → gateway
+           ├─ booking.PrepareCharge (read-only: ownership, state, expiry, amount)
+           └─ payment.Charge → Xendit invoice (hosted) → checkoutUrl
+3. WEBHOOK Xendit → gateway → payment.Webhook (atau payment.SyncPaymentStatus)
+           ├─ payment-service update payments + emit payment.settled/failed
+           └─ booking-service consume:
+                settled → paid_at, release locks, emit booking.confirmed
+                          + payment.received
+                failed  → CANCELLED, emit booking.cancelled
+4. CONFIRM booking.confirmed → ticket-service issue tickets (idempotent)
+           └─ tickets.issued → booking-service set CONFIRMED/tickets_issued_at
+              → notification-service send ticket email
+5. REFUND  POST /bookings/:id/cancel pada booking CONFIRMED
+           ├─ booking set REFUND_PENDING, emit booking.refund.requested
+           ├─ payment-service POST /refunds (Xendit) — refund async
+           ├─ SUCCEEDED → payment.refunded → booking REFUNDED
+           │              → booking.refunded → ticket-service void tickets
            ├─ PENDING   → REFUND_PENDING: kursi MASIH dipegang, tiket masih sah
-           └─ FAILED (ditemukan reconcile) → kembali CONFIRMED (uang tidak jadi pindah)
-5. EXPIRE  Cron tiap menit (@Cron reconcile) + TTL redlock auto-release
-           → PENDING lewat 5 menit → EXPIRED, kursi kembali tersedia
-           Cron yang sama menuntaskan REFUND_PENDING (ini langkah 4)
-6. FALLBACK POST /bookings/:id/sync-payment — kalau webhook telat/hilang,
-           server yang menanyakan status ke Xendit (client-side polling di
-           ConfirmationPage.vue memanggil ini)
+           └─ FAILED    → payment.refund_failed → kembali ke state berbayar
+6. EXPIRE  Cron booking-service tiap menit
+           ├─ hanya PENDING yang BELUM dibayar → EXPIRED + release locks
+           ├─ emit booking.expired → payment-service expire invoice
+           └─ paid-PENDING tidak pernah di-expire; confirmation-retry cron
+              mengirim ulang booking.confirmed jika tickets.issued hilang
+7. LATE    payment.settled untuk EXPIRED/CANCELLED → refund otomatis,
+           tidak pernah menerbitkan tiket
 ```
 
 ### Kompensasi saga: refund bukan sekadar ubah status
 
 Langkah `PAY` adalah satu-satunya langkah yang benar-benar memindahkan uang,
- jadi pembatalannya tidak boleh hanya menandai booking mati. Aturannya:
+jadi pembatalannya tidak boleh hanya menandai booking mati. Aturannya:
 
 - **Jangan pernah bilang REFUNDED sebelum provider bilang SUCCEEDED.**
   Booking baru berstatus `REFUNDED` (terminal) setelah Xendit menuntaskan
@@ -113,23 +139,23 @@ Langkah `PAY` adalah satu-satunya langkah yang benar-benar memindahkan uang,
   gagal, booking kembali `CONFIRMED` tanpa ada yang perlu dipulihkan.
 - **Idempoten secara alami:** `REFUND_PENDING`/`REFUNDED` ditolak 409, jadi
   cancel kedua tidak pernah mengirim refund kedua.
+- **Late money tidak membeli tiket.** Settlement setelah hold kedaluwarsa
+  memicu `booking.refund.requested`; kursi yang sudah dijual ke orang lain
+  tidak pernah diambil kembali.
 
 Ini contoh konkret kenapa saga butuh langkah kompensasi eksplisit: tanpa itu,
- pelanggan yang sudah membayar tidak punya jalan keluar sama sekali — persis
- kondisi kode sebelum increment refund ini.
+pelanggan yang sudah membayar tidak punya jalan keluar sama sekali.
 
 **Dua lapis pertahanan anti double-booking:**
 
 | Lapis | Mekanisme | Sifat |
 | --- | --- | --- |
 | 1 | Redis redlock, `seat:{showtimeId}:{seatId}`, TTL 5 menit | Cepat, tapi *best-effort* |
-| 2 | **`UNIQUE (showtime_id, seat_id)`** di tabel `booking_seats` | Hard guarantee di DB |
+| 2 | **`UNIQUE (showtime_id, seat_id)`** di `booking_db.booking_seats` | Hard guarantee di DB |
 
 Komentar di kode menyatakan ini eksplisit: *"Redis is the concurrency layer;
 the UNIQUE index on booking_seats is the hard double-booking guard."* — DB
 adalah **source of truth**, Redis hanya *optimisasi concurrency*.
-
----
 
 ## 4. Analisis CAP Theorem
 
@@ -150,7 +176,7 @@ tergantung domain data.
 | **Seat holding (hold kursi)** | **CP** | Dua orang menghold kursi yang sama = bencana bisnis. Lebih baik tolak request (409) daripada menerima keduanya. Redlock: majority quorum, lock tidak bisa diperoleh → request ditolak. Sistem memilih *tidak available* untuk kursi yang diperdebatkan, demi konsistensi. |
 | **Konfirmasi pembayaran** | **CP (via DB)** | `UNIQUE(showtime_id, seat_id)` adalah garis konsistensi terakhir. Kalau dua jalur (webhook + sync-payment) balapan, satu `INSERT` gagal di constraint — sistem tetap C bahkan saat lock sudah rusak. |
 | **Katalog film/teater (browsing)** | **AP** | Guest membuka daftar film boleh melihat data sedikit stale. Tidak ada mekanisme C di sini — service menjawab dari DB-nya sendiri tanpa koordinasi. Availability diutamakan. |
-| **Email notifikasi** | **AP / eventual** | RabbitMQ fanout, fire-and-forget dengan retry. Email telat/dua kali tidak merusak invariant bisnis. |
+| **Email notifikasi** | **AP / eventual** | RabbitMQ topic exchange, at-least-once dengan manual ack. Email telat/dua kali tidak merusak invariant bisnis. |
 | **Tracing/metrics (OTel)** | **AP, sampling 20%** (`VITE_OTEL_SAMPLE_RATIO=0.2`) | Data observability boleh hilang sebagian; tidak boleh memperlambat request. |
 
 Jadi jawaban yang tepat bukan "CinX adalah sistem CP" atau "AP", melainkan:
@@ -222,14 +248,14 @@ adalah jalur cepatnya. Kalau webhook hilang (partisi Xendit→Anda), sistem
 - **Degradasi fungsional, bukan crash:** landing page punya `FALLBACK_ROWS` +
   badge "DEMO BOARD" (`LandingPage.vue`) — gateway mati sekalipun, landing
   tetap menampilkan konten. Ini *graceful degradation* di edge.- **Timeout & retry ada di batas service** (`grpcSend` di shared), dan kegagalan Redis dipetakan ke 503 yang jujur — bukan 409 yang menipu user bahwa kursi sudah diambil orang.
-- **Email adalah efek samping, bukan langkah transaksi.** Setelah booking
-  `CONFIRMED`, ticket-service mem-publish `booking.confirmed` dan
-  `payment.received` ke exchange fanout RabbitMQ; notification-service yang
-  mengubahnya jadi email. Publish bersifat *best-effort*: kalau broker mati,
-  booking yang sudah dibayar tetap sah dan kegagalannya hanya dicatat — uang
-  tidak boleh batal karena email gagal. Resipien diambil lewat gRPC
-  `UserService.Get`, jadi ticket-service tetap tidak menyimpan data pelanggan
-  (batas *data ownership* tetap utuh).
+- **Email adalah efek samping, bukan langkah transaksi.** Booking-service
+  mem-publish `booking.confirmed` (dengan recipient hasil `UserService.Get`)
+  dan `payment.received`; ticket-service mem-publish `tickets.issued`.
+  Notification-service mengubahnya menjadi email. Publish bersifat
+  *best-effort*: kalau broker mati, booking yang sudah dibayar tetap sah dan
+  kegagalannya hanya dicatat — uang tidak boleh batal karena email gagal.
+  Booking-service tetap tidak menyimpan data pelanggan (batas *data ownership*
+  tetap utuh).
 
 ---
 
@@ -241,8 +267,9 @@ adalah jalur cepatnya. Kalau webhook hilang (partisi Xendit→Anda), sistem
 | Redis lock sebagai lapis 1 | Hold cepat (sub-ms), auto-expiry elegan (TTL = hold window) | Keamanan lock tidak absolut → wajib dibayar dengan constraint DB |
 | Webhook async | Tidak blokir user, tahan fluktuasi | Event bisa hilang/telat → perlu sync-payment + polling + idempotency |
 | Gateway BFF | API disesuaikan UI, CORS nol-ribet | Hop ekstra, gateway harus HA |
-| Orchestration (bukan choreography) | Flow hold→pay→confirm mudah dilacak (satu trace OTel end-to-end) | ticket-service jadi pusat koordinasi yang padat |
-| 4 repo-service vs monolith | Skala per-service, boundary jelas | Overhead operasional (5 container + observability stack untuk satu aplikasi) — untuk skala kecil ini *over-engineering*, tapi itulah harganya belajar microservices |
+| Orchestration (bukan choreography) | Flow hold→pay→confirm mudah dilacak (satu trace OTel end-to-end) | booking-service memegang state saga dan harus idempoten terhadap event duplikat |
+| Event-driven domain split | Booking, payment, dan ticket punya batas data/command yang jelas | Butuh durable queue, manual ack, event contracts, dan rekonsiliasi saat event hilang |
+| Multi-service vs monolith | Skala per-service, boundary jelas | Overhead operasional (7 container + observability stack untuk satu aplikasi) — untuk skala kecil ini *over-engineering*, tapi itulah harganya belajar microservices |
 
 ---
 
@@ -268,12 +295,12 @@ padanannya di kode CinX.
 | **SPA** (Single Page Application) | Aplikasi web yang dimuat sekali di browser lalu diperbarui lewat panggilan API, bukan reload halaman penuh | Aplikasi Vue 3 di `:5173` |
 | **API Gateway** | Satu pintu depan yang menerima semua request klien lalu meneruskannya ke service internal | `apps/gateway` di `:3000` |
 | **BFF** (Backend-for-Frontend) | Gateway yang didesain khusus untuk satu frontend — membentuk data backend persis sesuai kebutuhan UI | Gateway menggabungkan balasan gRPC menjadi satu respons REST/JSON |
-| **Microservices** | Memecah aplikasi menjadi service kecil yang independen, masing-masing memiliki satu domain | user-service, cinema-service, ticket-service |
+| **Microservices** | Memecah aplikasi menjadi service kecil yang independen, masing-masing memiliki satu domain | user, cinema, booking, payment, ticket, notification |
 | **Monolith** | Kebalikannya: satu aplikasi berisi semuanya | — |
-| **Database-per-service** | Setiap service punya database privat sendiri; service lain tidak pernah query langsung | `user_db`, `cinema_db`, `ticket_db` |
+| **Database-per-service** | Setiap service punya database privat sendiri; service lain tidak pernah query langsung | `user_db`, `cinema_db`, `booking_db`, `payment_db`, `ticket_db` |
 | **Data ownership** | Hanya satu service yang boleh menulis datanya; yang lain harus meminta lewat API-nya | Hanya cinema-service yang boleh mengubah data kursi/teater |
-| **Saga** | Alur kerja multi-langkah lintas service; tiap langkah commit lokal, kegagalan dibatalkan dengan langkah kompensasi (bukan satu transaksi besar) | hold → pay → confirm/expire melintasi 2 database |
-| **Orchestration** (vs **choreography**) | Gaya saga dengan satu koordinator yang mengarahkan semua langkah (seperti konduktor orkestra); choreography = service saling bereaksi lewat event tanpa konduktor | ticket-service adalah konduktornya; email via RabbitMQ bersifat choreography |
+| **Saga** | Alur kerja multi-langkah lintas service; tiap langkah commit lokal, kegagalan dibatalkan dengan langkah kompensasi (bukan satu transaksi besar) | hold → pay → confirm/refund melintasi booking, payment, dan ticket |
+| **Orchestration** (vs **choreography**) | Gaya saga dengan satu koordinator yang mengarahkan semua langkah (seperti konduktor orkestra); choreography = service saling bereaksi lewat event tanpa konduktor | booking-service memegang state saga; payment/ticket bereaksi lewat event |
 | **Distributed lock** | Cara memastikan "hanya satu pihak boleh menyentuh resource ini saat ini" lintas mesin | Lock Redis per kursi |
 | **Stateless** | Server tidak menyimpan memori antar-request; setiap request membawa semua yang dibutuhkan | Gateway/service bisa di-restart bebas; token ikut di tiap request |
 
@@ -282,10 +309,10 @@ padanannya di kode CinX.
 | Istilah | Arti | Di CinX |
 | --- | --- | --- |
 | **REST** | API berbasis URL + metode HTTP, umumnya JSON | `GET /api/v1/movies` |
-| **gRPC** | Protokol biner cepat untuk komunikasi antar-service, kontraknya didefinisikan di file `.proto`; browser tidak bisa memakainya langsung (alasan gateway wajib ada) | gateway → ticket-service |
-| **Stub** | Kode klien hasil generate untuk memanggil service gRPC, dengan typing | `TicketServiceStub` |
+| **gRPC** | Protokol biner cepat untuk komunikasi antar-service, kontraknya didefinisikan di file `.proto`; browser tidak bisa memakainya langsung (alasan gateway wajib ada) | gateway → booking/payment/ticket/cinema/user |
+| **Stub** | Kode klien hasil generate untuk memanggil service gRPC, dengan typing | `BookingServiceStub`, `PaymentServiceStub`, `TicketServiceStub` |
 | **Webhook** | "Saat X terjadi, panggil URL saya" — notifikasi push dari satu sistem ke sistem lain | Xendit memanggil gateway saat pembayaran sukses |
-| **Fanout** | Satu pesan dikirim ke semua subscriber sebuah exchange | RabbitMQ menyiarkan event booking ke notification-service |
+| **Topic exchange** | Exchange yang merutekan pesan berdasarkan pola routing key, bukan menyiarkan ke semua queue | `ticketing.internal` merutekan `payment.*` dan `booking.*` ke queue masing-masing |
 | **CORS** | Aturan keamanan browser untuk halaman yang memanggil origin berbeda; panggilan same-origin bebas CORS | Vite mem-proxy `/api` → `:3000`, jadi tidak perlu konfigurasi CORS |
 | **FK** (Foreign Key) | Kolom DB yang menegaskan "baris ini harus merujuk baris nyata di tabel lain" | Sengaja **tidak ada** lintas DB — diganti validasi gRPC + snapshot |
 | **Join** | Menggabungkan tabel dalam satu query SQL; mustahil lintas database terpisah | Baris booking membawa snapshot, bukan join |
@@ -303,7 +330,7 @@ padanannya di kode CinX.
 | **Double-booking** | Kursi yang sama terjual ke dua orang — invariant yang dijaga seluruh desain | dicegah lock (lapis 1) + UNIQUE constraint (lapis 2) |
 | **Fail-closed** | Saat komponen keamanan rusak, sistem menolak request daripada berisiko melewatkan yang salah | Redis mati → 503 "Seat lock unavailable", bukan 409 palsu |
 | **Source of truth** | Lokasi data yang berwenang saat ada perbedaan | Postgres, bukan Redis — Redis hanya optimisasi |
-| **Cron / reconcile** | Timer berkala yang memeriksa ulang dan memperbaiki state | Tiap menit, booking PENDING yang lewat 5 menit di-flip ke EXPIRED |
+| **Cron / reconcile** | Timer berkala yang memeriksa ulang dan memperbaiki state | Tiap menit booking-service meng-expire hold, mengulang konfirmasi, dan merekonsiliasi refund |
 | **Hot path** | Jalur kode yang paling sering dieksekusi dan wajib cepat | Alur hold normal (1 Redis + 1 gRPC + 1 INSERT) |
 | **GC pause** | Jeda garbage collection; program bisa berhenti beberapa detik di tengah pekerjaan — cara klasik lock "hilang" (kritik Kleppmann atas Redlock) | Alasan ada lapis ke-2 |
 
@@ -319,7 +346,7 @@ padanannya di kode CinX.
 | **Linearizable** | Jaminan terkuat: operasi pada satu resource terlihat terjadi satu per satu, sesuai urutan waktu nyata | Kursi yang sedang di-lock |
 | **ACID** | Jaminan transaksi klasik satu database: Atomic, Consistent, Isolated, Durable | Transaksi PostgreSQL di tiap service |
 | **Read-your-writes** | Setelah menulis, bacaan berikutnya pasti melihat tulisan itu | Sesi/token diverifikasi sebelum route guarded dimuat |
-| **Eventual consistency** | Pembaruan menyebar seiring waktu; salinan akan menyatu jika ditunggu | Tiket muncul sesaat setelah pembayaran |
+| **Eventual consistency** | Pembaruan menyebar seiring waktu; salinan akan menyatu jika ditunggu | `CONFIRMED` muncul setelah `payment.settled` → `booking.confirmed` → `tickets.issued` |
 | **Anti-entropy** | Mekanisme latar yang memperbaiki ketidaksesuaian saat jalur cepat kehilangan data | Polling `sync-payment` saat webhook hilang |
 | **Causal consistency** | Efek selalu muncul setelah penyebabnya | Trace klik terhubung ke trace backend |
 | **Consensus (Raft / Paxos / ZooKeeper)** | Algoritma berat yang membuat kluster sepakat sebagai satu — kuat tapi lambat; sengaja tidak dipakai di hot path | — |
@@ -338,7 +365,7 @@ padanannya di kode CinX.
 | **Timeout & retry** | Membatasi lama menunggu service lain, lalu mencoba ulang dengan aman | `grpcSend` di shared |
 | **OTel (OpenTelemetry)** | Standar instrumentasi untuk memancarkan trace/metrics dari kode | Semua service ter-instrumentasi |
 | **OTLP** | Protokol yang dipakai OTel untuk mengirim data telemetry | → otel-collector |
-| **Trace / traceparent** | Perjalanan satu request lintas service, dijahit oleh ID yang di-propagasi dari ujung ke ujung | Klik → gateway → ticket-service dalam satu tampilan |
+| **Trace / traceparent** | Perjalanan satu request lintas service, dijahit oleh ID yang di-propagasi dari ujung ke ujung | Klik → gateway → booking/payment → event → ticket dalam satu tampilan |
 | **Sampling (20%)** | Hanya merekam sebagian trace agar observability tidak memperlambat aplikasi | `VITE_OTEL_SAMPLE_RATIO=0.2` |
 | **Tempo / Prometheus / Grafana** | Penyimpanan trace / penyimpanan metrics / dashboard di atas keduanya | Stack observability di compose |
 | **409 / 410 / 503** | Kode HTTP: 409 = conflict ("sudah diambil orang"), 410 = gone (hold kedaluwarsa), 503 = service unavailable ("jujur belum bisa memutuskan") | Dipakai apa adanya sesuai kondisi |

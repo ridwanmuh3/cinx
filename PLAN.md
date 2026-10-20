@@ -1,7 +1,8 @@
 # Ticketing Cinema System — Plan
 
-A microservices ticketing/cinema portfolio project. NestJS microservices over
-TCP with application-level seat locking backed by Redis (redlock).
+A microservices ticketing/cinema portfolio project. NestJS services expose gRPC
+commands, a REST gateway serves the Vue app, and booking/payment/ticket
+coordinate through RabbitMQ domain events.
 
 ## Stack
 
@@ -9,31 +10,36 @@ TCP with application-level seat locking backed by Redis (redlock).
 | ----------- | ---------------------------------------------- |
 | Language    | TypeScript                                     |
 | Monorepo    | pnpm workspaces + Turborepo                    |
-| Backend     | NestJS (microservices over TCP)                |
+| Backend     | NestJS (gRPC + RabbitMQ)                       |
 | API surface | NestJS gateway exposing REST for the web app   |
 | Databases   | PostgreSQL 18.4 + TypeORM (one DB per service) |
 | Locking     | Redis 8.10 + `redlock` on top of `ioredis`     |
-| Payment     | Mock provider (simulated success/failure)      |
+| Payments    | Xendit hosted invoices + refunds               |
+| Messaging   | RabbitMQ topic exchange `ticketing.internal`   |
 | Frontend    | Vue 3 + Vite (SPA)                             |
 
-Contracts live in `docs/openapi.yaml` (REST surface) and the ERD in
-`docs/ERD.md` (relational model). The ERD maps 1:1 to TypeORM entities.
+Contracts live in `docs/openapi.yaml` (REST surface), `packages/shared/proto`
+(gRPC), and `packages/shared/src/contracts` (event payloads). The relational
+model is in `docs/ERD.md`.
 
 ## Repo layout
 
 ```
 ticketing-cinema/
 ├── apps/
-│   ├── gateway/          # REST BFF → TCP to services
-│   ├── user-service/     # users + auth (JWT, roles)
-│   ├── cinema-service/   # movies, theaters, showtimes, seat maps
-│   ├── ticket-service/   # bookings, Redis seat-locking, mock payment
-│   └── web/              # Vue 3 SPA
+│   ├── gateway/            # REST BFF → gRPC commands + webhook ingress
+│   ├── user-service/       # users + auth (JWT, roles)
+│   ├── cinema-service/     # movies, theaters, showtimes, seat maps
+│   ├── booking-service/    # bookings, seat locks, saga state, crons
+│   ├── payment-service/    # payments, Xendit adapter, webhook/sync/refunds
+│   ├── ticket-service/     # tickets only
+│   ├── notification-service/ # email consumer
+│   └── web/                # Vue 3 SPA
 ├── packages/
-│   └── shared/           # DTOs, TCP message-pattern constants, types
+│   └── shared/             # protos, contracts, gRPC clients, telemetry
 ├── infra/
-│   ├── docker-compose.yml # postgres:18.4 + redis:8.10
-│   └── init/init.sql      # creates user_db, cinema_db, ticket_db
+│   ├── docker-compose.yml  # postgres + redis + rabbitmq + observability
+│   └── init/init.sql       # creates user_db, cinema_db, booking_db, payment_db, ticket_db
 ├── pnpm-workspace.yaml
 ├── turbo.json
 └── justfile
@@ -43,43 +49,67 @@ ticketing-cinema/
 
 - **user-service** — `user_db`; Users, auth, JWT, role guard (admin/user).
 - **cinema-service** — `cinema_db`; Movies, Theaters, Showtimes, Seats.
-- **ticket-service** — `ticket_db`; Bookings, BookingSeats, Payments, Tickets.
-  Owns seat availability state via Redis locks. Reads seat validity from
-  cinema-service over TCP. `seat_id`/`showtime_id` are logical references
-  (no FKs across databases); seat data is snapshotted at hold time. The
-  `UNIQUE (showtime_id, seat_id)` index on BookingSeats is the hard
-  double-booking guard.
-- **gateway** — stateless; validates JWT, fans REST calls out over TCP using
-  message patterns from `packages/shared`.
+- **booking-service** — `booking_db`; Bookings, BookingSeats. Owns Redis seat
+  locks, hold/expiry, the saga state machine, and expiry/confirmation/refund
+  retry crons. Snapshots movie/theater/start at hold time.
+- **payment-service** — `payment_db`; Payments, Xendit charge/webhook/sync,
+  refund initiation and reconciliation.
+- **ticket-service** — `ticket_db`; Tickets only. Consumes
+  `booking.confirmed`/`refunded`/`cancelled`/`expired` and publishes
+  `tickets.issued`/`tickets.voided`.
+- **notification-service** — no database; consumes `tickets.issued` and
+  `payment.received` and sends email.
+- **gateway** — stateless; validates JWT, routes REST commands over gRPC, and
+  exposes `booking.availability`-backed seat availability. It is the only
+  synchronous command router.
 
-## TCP contract
+`seat_id`/`showtime_id`/`user_id`/`booking_id` are logical references (no FKs
+across databases); seat data is snapshotted on write. The
+`UNIQUE (showtime_id, seat_id)` index on `booking_seats` is the hard
+double-booking guard.
 
-- All message patterns live in `packages/shared` (e.g. `booking.hold`,
-  `payment.confirm`, `cinema.seatMap`). No stringly-typed patterns across apps.
-- Gateway ↔ services: request/response via `client.send()`.
-- Services use `@nestjs/microservices` `TcpOptions`.
+## gRPC + event contract
 
-## Seat-locking with redlock
+- Protos live in `packages/shared/proto`; stubs in
+  `packages/shared/src/grpc-clients.ts`.
+- Gateway ↔ services: request/response via gRPC.
+- Domain coordination: durable RabbitMQ queues bound to one topic exchange,
+  `ticketing.internal`. Handlers are idempotent and use manual ack.
+- Events: `payment.settled`, `payment.failed`, `payment.refund_pending`,
+  `payment.refunded`, `payment.refund_failed`, `payment.received`,
+  `booking.confirmed`, `booking.cancelled`, `booking.expired`,
+  `booking.refund.requested`, `booking.refunded`, `tickets.issued`,
+  `tickets.voided`.
+
+## Seat-locking and booking flow
 
 Seat availability = lock on resource key `seat:{showtimeId}:{seatId}`.
 
-1. **Hold** — `booking.hold`: ticket-service validates seats with
-   cinema-service, then `redlock.lock([seat keys], TTL 5 min)`.
-   - Redlock acquires all resources together and auto-releases on partial
-     failure → a seat already held means the whole hold fails.
-2. Failure → 409 Conflict (some seats taken).
-3. Success → Booking doc `PENDING` + `expiresAt`, return `bookingId` +
-   mock payment details.
-4. **Pay** — mock provider; gateway forwards result via `payment.confirm`.
-5. On confirm: re-check/extend lock, mark Booking `CONFIRMED`, create Ticket,
-   release locks.
-6. On cancel/fail/TTL expiry: release locks, mark Booking `EXPIRED`/`CANCELLED`.
-7. Reconciliation job (cron in ticket-service) expires stale `PENDING`
-   bookings as belt-and-suspenders; redlock TTL auto-releases the lock itself.
+1. **Hold** — `booking.Hold`: booking-service validates seats with
+   cinema-service, then `redlock.lock([seat keys], TTL 5 min)`, and writes a
+   `PENDING` booking + seat/movie snapshots.
+2. Failure → 409 Conflict (some seats taken); Redis down → 503, not 409.
+3. **Pay** — gateway calls `booking.PrepareCharge` (read-only validation), then
+   `payment.Charge` → Xendit invoice.
+4. **Settle** — webhook/sync updates `payments` and publishes
+   `payment.settled`. Booking-service records `paid_at`, releases locks, and
+   publishes `booking.confirmed`; ticket-service issues tickets and publishes
+   `tickets.issued`; booking-service then sets `CONFIRMED`.
+5. **Cancel/fail/expiry** — booking-service releases locks and emits
+   `booking.cancelled`/`booking.expired`; payment-service expires the invoice.
+   Paid bookings refund through Xendit: `REFUND_PENDING` keeps seats and
+   tickets valid until `payment.refunded`, then ticket-service voids tickets.
+6. **Reconciliation** — booking-service expires only unpaid holds, re-emits
+   `booking.confirmed` for paid-pending bookings, and retries refund commands;
+   payment-service polls pending refunds.
 
 DB is the source of truth; Redis is the concurrency layer for seat holding.
 
 ## Build phases
+
+> Phases 0–7 are historical records of how the project got here. Where they
+> mention TCP or a single ticket-service owning bookings/payments, the current
+> topology above supersedes them.
 
 ### [COMPLETED] Phase 0 — Scaffold
 
