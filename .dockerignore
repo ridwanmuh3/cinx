@@ -18,3 +18,5 @@ graphify-out
 test-results
 playwright-report
 apps/web/e2e/.auth
+benchmark/.data
+benchmark/results
