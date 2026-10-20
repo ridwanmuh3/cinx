@@ -1,6 +1,6 @@
 # Ticket Service Domain Split
 
-Status: proposed
+Status: implemented; dead-letter queue and transactional outbox are follow-ups
 
 This document describes the decomposition of `apps/ticket-service` into three
 services — booking, payment, and ticket — while keeping `cinema-service` as the
@@ -128,9 +128,10 @@ Queues:
 - `notification.events` — binds `tickets.issued`, `payment.received`.
 
 Domain events use durable queues and manual acknowledgement. Handlers are
-idempotent. A handler that commits local state but fails to publish throws, so
-the broker requeues the message and the retry republishes. Poison messages go
-to a dead-letter queue after a retry limit. Notification events stay
+idempotent. Consumers ack after the handler resolves and nack without requeue
+when it fails, so a poison message cannot block the queue. Retry crons (booking
+confirmation, refund reconciliation, payment sync) republish the missing step.
+A bounded retry + dead-letter queue is a follow-up; notification events stay
 best-effort.
 
 `booking.confirmed` carries the seat/movie snapshot and the resolved recipient,
@@ -239,8 +240,8 @@ money is returned.
    route commands as described above; keep every REST path and response shape.
 6. **Infrastructure** — add `booking_db` and `payment_db`; add the two
    services to compose, Dockerfiles, CI/CD, environment examples, and the e2e
-   script; replace the fanout exchange with `ticketing.internal` topic; add a
-   dead-letter queue; add a cross-database e2e cleanup script.
+   script; replace the fanout exchange with `ticketing.internal` topic. The
+   dead-letter queue and cross-database e2e cleanup script remain follow-ups.
 7. **Tests and docs** — split unit and integration tests; add event-consumer
    tests; update `README.md`, `docs/ARCHITECTURE.md`, `docs/ERD.md`, and
    `PLAN.md`; run `graphify update`.
@@ -262,8 +263,9 @@ money is returned.
 
 - Splitting or renaming `cinema-service`.
 - Preserving existing `ticket_db` rows.
-- A transactional outbox. Idempotent handlers, requeue, and retry crons cover
-  the current scale; an outbox can be added later.
+- A transactional outbox and a bounded-retry dead-letter queue. Idempotent
+  handlers, manual ack, and retry crons cover the current scale; both can be
+  added later.
 - Web application changes.
 
 ## Risks

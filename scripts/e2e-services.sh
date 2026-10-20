@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Boot the full backend stack for Playwright E2E tests (foreground).
-# Builds once, starts all 4 services, and waits until the gateway is healthy.
+# Builds once, starts user/cinema/booking/payment/ticket/gateway, and waits
+# until the gateway (which pings every backend) is healthy.
 # Ctrl-C / process kill stops the whole group.
 #
 # Usage:
@@ -22,7 +23,7 @@ trap cleanup INT TERM EXIT
 
 # Free the service ports first so a leftover stack never causes
 # EADDRINUSE. Set E2E_REUSE_SERVICES=1 to keep an already-running stack.
-SERVICE_PORTS=(3000 3001 3002 3003)
+SERVICE_PORTS=(3000 50051 50052 50053 50054 50055)
 free_ports() {
   for port in "${SERVICE_PORTS[@]}"; do
     if ss -tlnp 2>/dev/null | grep -q ":$port "; then
@@ -48,6 +49,8 @@ pnpm build
 echo "==> [e2e] starting microservices"
 node apps/user-service/dist/main.js &
 node apps/cinema-service/dist/main.js &
+node apps/booking-service/dist/main.js &
+node apps/payment-service/dist/main.js &
 node apps/ticket-service/dist/main.js &
 node apps/gateway/dist/main.js &
 

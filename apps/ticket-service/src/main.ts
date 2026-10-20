@@ -1,7 +1,5 @@
 import { initTelemetry } from '@ticketing/shared';
 
-// Runs before bootstrap(): auto-instrumentation patches http/gRPC/pg/ioredis
-// when the SDK starts, ahead of any traffic or client connections.
 initTelemetry('ticket-service');
 
 import 'reflect-metadata';
@@ -13,13 +11,20 @@ import {
   GRPC_PORTS,
   GrpcExceptionFilter,
   protoPath,
+  RMQ,
+  RmqAckInterceptor,
 } from '@ticketing/shared';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const port = Number(process.env.PORT) || GRPC_PORTS.TICKET;
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(
-    AppModule,
+  const app = await NestFactory.create(AppModule);
+
+  app.useGlobalFilters(new GrpcExceptionFilter());
+  app.useGlobalInterceptors(new RmqAckInterceptor());
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+
+  app.connectMicroservice<MicroserviceOptions>(
     {
       transport: Transport.GRPC,
       options: {
@@ -35,10 +40,26 @@ async function bootstrap() {
         },
       },
     },
+    { inheritAppConfig: true },
   );
-  app.useGlobalFilters(new GrpcExceptionFilter());
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  await app.listen();
+
+  app.connectMicroservice<MicroserviceOptions>(
+    {
+      transport: Transport.RMQ,
+      options: {
+        urls: [RMQ.URL],
+        queue: RMQ.QUEUES.TICKET_BOOKING_EVENTS,
+        queueOptions: { durable: true },
+        exchange: RMQ.INTERNAL_EXCHANGE,
+        exchangeType: RMQ.INTERNAL_EXCHANGE_TYPE,
+        wildcards: true,
+        noAck: false,
+      },
+    },
+    { inheritAppConfig: true },
+  );
+
+  await app.startAllMicroservices();
   console.log(`ticket-service listening on gRPC :${port}`);
 }
 

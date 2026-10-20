@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Resend } from 'resend';
 import {
-  BookingConfirmationData,
-  PaymentReceiptData,
+  TicketsIssuedData,
+  PaymentReceivedData,
+  Recipient,
   RESEND_API_KEY,
   RESEND_FROM,
   EMAIL_BASE_URL,
@@ -59,18 +60,22 @@ export class ResendService {
     }
   }
 
-  async sendBookingConfirmation(
-    data: BookingConfirmationData,
-  ): Promise<EmailResult> {
-    const html = confirmationHtml(data);
+  async sendBookingConfirmation(data: TicketsIssuedData): Promise<EmailResult> {
+    if (!data.recipient) {
+      return { accepted: false, messageId: null, error: 'no recipient' };
+    }
+    const html = confirmationHtml(data, data.recipient);
     return this.deliver(data.recipient.to, data.recipient.name, html, {
       subject: `Your CinX tickets for ${data.movieTitle}`,
       tag: 'tickets',
     });
   }
 
-  async sendPaymentReceipt(data: PaymentReceiptData): Promise<EmailResult> {
-    const html = receiptHtml(data);
+  async sendPaymentReceipt(data: PaymentReceivedData): Promise<EmailResult> {
+    if (!data.recipient) {
+      return { accepted: false, messageId: null, error: 'no recipient' };
+    }
+    const html = receiptHtml(data, data.recipient);
     return this.deliver(data.recipient.to, data.recipient.name, html, {
       subject: `Payment receipt — CinX (${data.providerTxnId ?? data.bookingId})`,
       tag: 'receipt',
@@ -145,7 +150,7 @@ export class ResendService {
   }
 }
 
-function confirmationHtml(d: BookingConfirmationData): string {
+function confirmationHtml(d: TicketsIssuedData, recipient: Recipient): string {
   const seats = d.seats
     .map(
       (s) =>
@@ -162,7 +167,7 @@ function confirmationHtml(d: BookingConfirmationData): string {
   <header style="background:#1f2937;padding:20px;color:#fff"><strong>CinX</strong> — Cinema tickets</header>
   <main style="padding:24px">
     <h1 style="color:#f59e0b">Booking confirmed</h1>
-    <p>Hi${d.recipient.name ? ' ' + escapeHtml(d.recipient.name) : ''}, your payment was received and your booking <strong>${escapeHtml(d.bookingId)}</strong> is confirmed.</p>
+    <p>Hi${recipient.name ? ' ' + escapeHtml(recipient.name) : ''}, your payment was received and your booking <strong>${escapeHtml(d.bookingId)}</strong> is confirmed.</p>
     <p><strong>${escapeHtml(d.movieTitle)}</strong> at ${escapeHtml(d.theaterName)} starting <strong>${escapeHtml(new Date(d.startsAt).toLocaleString('id-ID'))}</strong></p>
     <h2 style="font-size:16px">Seats</h2>
     <ul>${seats}</ul>
@@ -176,13 +181,13 @@ function confirmationHtml(d: BookingConfirmationData): string {
   </body></html>`;
 }
 
-function receiptHtml(d: PaymentReceiptData): string {
+function receiptHtml(d: PaymentReceivedData, recipient: Recipient): string {
   const receiptLink = safeUrl(d.receiptUrl);
   return `<!doctype html><html><head><meta charset="utf-8"><title>Payment receipt</title></head><body style="font-family:system-ui,Arial,sans-serif;color:#111827">
   <header style="background:#1f2937;padding:20px;color:#fff"><strong>CinX</strong> — Payment receipt</header>
   <main style="padding:24px">
     <h1 style="color:#f59e0b">Payment received</h1>
-    <p>Hi${d.recipient.name ? ' ' + escapeHtml(d.recipient.name) : ''}, we received your payment for booking <strong>${escapeHtml(d.bookingId)}</strong>.</p>
+    <p>Hi${recipient.name ? ' ' + escapeHtml(recipient.name) : ''}, we received your payment for booking <strong>${escapeHtml(d.bookingId)}</strong>.</p>
     <ul>
       <li>Paid: <strong>Rp ${Number(d.amount).toLocaleString('id-ID')}</strong> ${escapeHtml(d.currency)}</li>
       <li>Method: ${escapeHtml(d.method)}</li>

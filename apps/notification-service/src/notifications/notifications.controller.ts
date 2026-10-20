@@ -1,9 +1,10 @@
 import { Controller, Logger, UseInterceptors } from '@nestjs/common';
 import { EventPattern } from '@nestjs/microservices';
 import {
-  BookingConfirmationData,
-  PaymentReceiptData,
-  NotificationPatterns,
+  TicketsIssuedData,
+  PaymentReceivedData,
+  PaymentEvents,
+  TicketEvents,
   EmailResult,
   RmqTraceInterceptor,
 } from '@ticketing/shared';
@@ -18,17 +19,25 @@ export class NotificationsController {
 
   constructor(private readonly resend: ResendService) {}
 
-  @EventPattern(NotificationPatterns.BOOKING_CONFIRMED)
-  async bookingConfirmed(data: BookingConfirmationData) {
-    this.logger.log(`booking.confirmed ${data.bookingId}`);
+  @EventPattern(TicketEvents.ISSUED)
+  async bookingConfirmed(data: TicketsIssuedData) {
+    this.logger.log(`tickets.issued ${data.bookingId}`);
+    if (!data.recipient) {
+      this.logger.warn(`no recipient for booking ${data.bookingId}; skipping`);
+      return;
+    }
     const res = await this.resend.sendBookingConfirmation(data);
     if (!res.accepted)
       this.logger.warn(`confirmation email not sent: ${res.error}`);
   }
 
-  @EventPattern(NotificationPatterns.PAYMENT_RECEIVED)
-  async paymentReceived(data: PaymentReceiptData) {
+  @EventPattern(PaymentEvents.RECEIVED)
+  async paymentReceived(data: PaymentReceivedData) {
     this.logger.log(`payment.received ${data.bookingId}`);
+    if (!data.recipient) {
+      this.logger.warn(`no recipient for booking ${data.bookingId}; skipping`);
+      return;
+    }
     const res: EmailResult = await this.resend.sendPaymentReceipt(data);
     if (!res.accepted) this.logger.warn(`receipt email not sent: ${res.error}`);
   }

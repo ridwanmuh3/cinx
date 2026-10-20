@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package payment;
+
+import "google/protobuf/empty.proto";
+
+service PaymentService {
+  rpc Ping(google.protobuf.Empty) returns (PingReply) {}
+  rpc Charge(PaymentChargeRequest) returns (PaymentChargeResponse) {}
+  rpc Webhook(PaymentWebhookRequest) returns (Empty) {}
+  rpc SyncPaymentStatus(PaymentSyncRequest) returns (PaymentDto) {}
+  rpc Get(PaymentGetRequest) returns (PaymentDto) {}
+}
+
+message PingReply {
+  string service = 1;
+  string status = 2;
+  string timestamp = 3;
+}
+
+message Empty {}
+
+message PaymentChargeRequest {
+  string bookingId = 1;
+  string userId = 2;
+  int32 amount = 3;
+  string currency = 4;
+  string expiresAt = 5;
+  string description = 6;
+  string returnUrl = 7;
+  string payerEmail = 8;
+}
+
+message PaymentChargeResponse {
+  string externalId = 1;
+  bool paid = 2;
+  string providerTxnId = 3;
+  string paidAt = 4;
+  string receiptUrl = 5;
+  string checkoutUrl = 6;
+  string invoiceId = 7;
+  string method = 8;
+}
+
+message PaymentWebhookRequest {
+  string signature = 1;
+  string body = 2;
+}
+
+message PaymentSyncRequest {
+  string bookingId = 1;
+}
+
+message PaymentGetRequest {
+  string bookingId = 1;
+}
+
+message PaymentDto {
+  string id = 1;
+  string bookingId = 2;
+  string externalId = 3;
+  string providerTxnId = 4;
+  int32 amount = 5;
+  string currency = 6;
+  string status = 7;
+  string refundId = 8;
+  string refundedAt = 9;
+  string paidAt = 10;
+  string receiptUrl = 11;
+  string invoiceId = 12;
+  string checkoutUrl = 13;
+  string method = 14;
+  string createdAt = 15;
+  string updatedAt = 16;
+}

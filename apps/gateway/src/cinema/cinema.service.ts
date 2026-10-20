@@ -22,7 +22,7 @@ import {
   TheaterCreateRequest,
   TheaterDto,
   TheaterUpdateRequest,
-  TicketServiceStub,
+  BookingServiceStub,
 } from '@ticketing/shared';
 
 export interface GatewaySeat {
@@ -44,14 +44,15 @@ export interface GatewaySeatMap {
 @Injectable()
 export class CinemaService {
   private readonly cinema: CinemaServiceStub;
-  private readonly ticket: TicketServiceStub;
+  private readonly booking: BookingServiceStub;
 
   constructor(
     @Inject(SERVICE_NAMES.CINEMA) cinemaClient: ClientGrpc,
-    @Inject(SERVICE_NAMES.TICKET) ticketClient: ClientGrpc,
+    @Inject(SERVICE_NAMES.BOOKING) bookingClient: ClientGrpc,
   ) {
     this.cinema = cinemaClient.getService<CinemaServiceStub>('CinemaService');
-    this.ticket = ticketClient.getService<TicketServiceStub>('TicketService');
+    this.booking =
+      bookingClient.getService<BookingServiceStub>('BookingService');
   }
 
   listMovies(q: ListMoviesQuery): Promise<PaginatedMovies> {
@@ -134,9 +135,9 @@ export class CinemaService {
 
   /**
    * Seat map with live availability: cinema-service provides the geometry
-   * and pricing, ticket-service reports which seats are currently HELD
-   * (live pending hold) or BOOKED (confirmed). Disabled seats are surfaced
-   * as BOOKED so the UI blocks them.
+   * and pricing, booking-service reports which seats are currently HELD
+   * (live pending hold) or BOOKED (paid/confirmed). Disabled seats are
+   * surfaced as BOOKED so the UI blocks them.
    */
   async seatMap(id: string): Promise<GatewaySeatMap> {
     const [map, availability] = await Promise.all([
@@ -165,7 +166,7 @@ export class CinemaService {
   }
 
   /**
-   * Best-effort live availability. If ticket-service is unreachable, degrade
+   * Best-effort live availability. If booking-service is unreachable, degrade
    * to an empty availability report so the seat map (geometry + pricing)
    * still renders; the real lock is still enforced server-side at hold time.
    */
@@ -174,7 +175,7 @@ export class CinemaService {
   ): Promise<BookingAvailabilityResponse> {
     const req: BookingAvailabilityRequest = { showtimeId };
     try {
-      return await grpcSend(this.ticket.Availability(req));
+      return await grpcSend(this.booking.Availability(req));
     } catch {
       return { showtimeId, seats: [] };
     }

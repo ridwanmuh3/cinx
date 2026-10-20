@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package booking;
+
+import "google/protobuf/empty.proto";
+
+service BookingService {
+  rpc Ping(google.protobuf.Empty) returns (PingReply) {}
+  rpc Hold(HoldSeatsRequest) returns (HoldResponse) {}
+  rpc Cancel(BookingCancelRequest) returns (BookingDto) {}
+  rpc Get(BookingGetRequest) returns (BookingDto) {}
+  rpc List(BookingListRequest) returns (PaginatedBookings) {}
+  rpc Availability(BookingAvailabilityRequest) returns (BookingAvailabilityResponse) {}
+  // Read-only validation used by the gateway before it starts a payment.
+  // Booking-service never calls payment-service synchronously.
+  rpc PrepareCharge(BookingGetRequest) returns (ChargeContext) {}
+}
+
+message PingReply {
+  string service = 1;
+  string status = 2;
+  string timestamp = 3;
+}
+
+message PaginationMeta {
+  int32 page = 1;
+  int32 limit = 2;
+  int32 total = 3;
+  int32 totalPages = 4;
+}
+
+message HoldSeatsRequest {
+  string userId = 1;
+  string showtimeId = 2;
+  repeated string seatIds = 3;
+}
+
+message BookingGetRequest {
+  string id = 1;
+  string userId = 2;
+}
+
+message BookingCancelRequest {
+  string id = 1;
+  string userId = 2;
+}
+
+message BookingListRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message HeldSeat {
+  string seatId = 1;
+  string rowLabel = 2;
+  int32 seatNumber = 3;
+  string category = 4;
+  int32 priceAmount = 5;
+  string priceCurrency = 6;
+}
+
+message PaymentSummary {
+  // Our own reference handed to the provider (cix-{bookingId}) — not theirs.
+  string externalId = 1;
+  string method = 2;
+  string status = 3;
+  string checkoutUrl = 4;
+  string invoiceId = 5;
+}
+
+message HoldResponse {
+  string bookingId = 1;
+  string status = 2;
+  string expiresAt = 3;
+  int32 totalAmount = 4;
+  string currency = 5;
+  repeated HeldSeat seats = 6;
+  PaymentSummary payment = 7;
+}
+
+message BookingSeatSnapshot {
+  string seatId = 1;
+  string rowLabel = 2;
+  int32 seatNumber = 3;
+  string category = 4;
+  int32 priceAmount = 5;
+  string priceCurrency = 6;
+}
+
+message BookingDto {
+  string id = 1;
+  string userId = 2;
+  string showtimeId = 3;
+  int32 totalAmount = 4;
+  string currency = 5;
+  string status = 6;
+  string expiresAt = 7;
+  string createdAt = 8;
+  string updatedAt = 9;
+  repeated BookingSeatSnapshot seats = 10;
+  // Set only when status is CANCELLED (CUSTOMER | PAYMENT_DECLINED).
+  string cancellationReason = 11;
+}
+
+message PaginatedBookings {
+  repeated BookingDto items = 1;
+  PaginationMeta meta = 2;
+}
+
+message BookingAvailabilityRequest {
+  string showtimeId = 1;
+}
+
+message AvailabilitySeat {
+  string seatId = 1;
+  string status = 2;
+}
+
+message BookingAvailabilityResponse {
+  string showtimeId = 1;
+  repeated AvailabilitySeat seats = 2;
+}
+
+message ChargeContext {
+  string bookingId = 1;
+  string userId = 2;
+  int32 amount = 3;
+  string currency = 4;
+  string expiresAt = 5;
+  string description = 6;
+}

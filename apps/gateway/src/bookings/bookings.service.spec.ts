@@ -1,10 +1,15 @@
 import { ClientGrpc } from '@nestjs/microservices';
 import { of, throwError } from 'rxjs';
-import { TicketServiceStub } from '@ticketing/shared';
+import {
+  BookingServiceStub,
+  ChargeContext,
+  PaymentServiceStub,
+  TicketServiceStub,
+} from '@ticketing/shared';
 import { CinemaService } from '../cinema/cinema.service';
 import { BookingsService } from './bookings.service';
 
-function grpcClient(stub: Partial<TicketServiceStub>): ClientGrpc {
+function grpcClient<T>(stub: Partial<T>): ClientGrpc {
   return {
     getService: () => stub,
   } as unknown as ClientGrpc;
@@ -28,6 +33,15 @@ describe('BookingsService', () => {
     seats: [],
   };
 
+  const chargeContext: ChargeContext = {
+    bookingId: 'b1',
+    userId,
+    amount: 100000,
+    currency: 'IDR',
+    expiresAt: '2026-08-12T15:00:00.000Z',
+    description: 'CinX: The Grand Adventure @ Grand Cineplex 1',
+  };
+
   const showtimeDto = {
     id: showtimeId,
     movie: {
@@ -46,19 +60,26 @@ describe('BookingsService', () => {
   };
 
   function makeService(
-    stub: Partial<TicketServiceStub>,
-    cinema?: CinemaService,
+    options: {
+      booking?: Partial<BookingServiceStub>;
+      payment?: Partial<PaymentServiceStub>;
+      ticket?: Partial<TicketServiceStub>;
+      cinema?: CinemaService;
+    } = {},
   ) {
     return new BookingsService(
-      grpcClient(stub),
-      cinema ??
+      grpcClient<BookingServiceStub>(options.booking ?? {}),
+      grpcClient<PaymentServiceStub>(options.payment ?? {}),
+      grpcClient<TicketServiceStub>(options.ticket ?? {}),
+      options.cinema ??
         ({
           getShowtime: jest.fn().mockResolvedValue(showtimeDto),
         } as unknown as CinemaService),
     );
   }
 
-  it('pay creates a Xendit invoice and returns its checkout URL', async () => {
+  it('pay composes PrepareCharge and Charge and returns the checkout URL', async () => {
+    const chargeArg: unknown[] = [];
     const charge = {
       externalId: 'cix-b1',
       paid: false,
@@ -69,13 +90,18 @@ describe('BookingsService', () => {
       invoiceId: 'inv_1',
       method: 'XENDIT' as const,
     };
-    const chargeArg: unknown[] = [];
     const service = makeService({
-      Charge: ((payload: unknown) => {
-        chargeArg.push(payload);
-        return of(charge);
-      }) as TicketServiceStub['Charge'],
-      Get: (() => of(bookingDto)) as TicketServiceStub['Get'],
+      booking: {
+        PrepareCharge: (() =>
+          of(chargeContext)) as BookingServiceStub['PrepareCharge'],
+        Get: (() => of(bookingDto)) as BookingServiceStub['Get'],
+      },
+      payment: {
+        Charge: ((payload: unknown) => {
+          chargeArg.push(payload);
+          return of(charge);
+        }) as PaymentServiceStub['Charge'],
+      },
     });
 
     const result = await service.pay(userId, 'b1', {});
@@ -83,6 +109,10 @@ describe('BookingsService', () => {
     expect(chargeArg[0]).toEqual({
       bookingId: 'b1',
       userId,
+      amount: 100000,
+      currency: 'IDR',
+      expiresAt: '2026-08-12T15:00:00.000Z',
+      description: 'CinX: The Grand Adventure @ Grand Cineplex 1',
       returnUrl: '',
       payerEmail: '',
     });
@@ -91,13 +121,15 @@ describe('BookingsService', () => {
     expect(result.movie?.title).toBe('The Grand Adventure');
   });
 
-  it('webhook forwards the signature and raw body', async () => {
+  it('webhook forwards the signature and raw body to payment-service', async () => {
     const seen: unknown[] = [];
     const service = makeService({
-      Webhook: ((payload: unknown) => {
-        seen.push(payload);
-        return of({});
-      }) as TicketServiceStub['Webhook'],
+      payment: {
+        Webhook: ((payload: unknown) => {
+          seen.push(payload);
+          return of({});
+        }) as PaymentServiceStub['Webhook'],
+      },
     });
 
     await service.webhook('tok', '{"id":"inv_1"}');
@@ -107,11 +139,13 @@ describe('BookingsService', () => {
 
   it('list enriches every item and preserves pagination metadata', async () => {
     const service = makeService({
-      List: (() =>
-        of({
-          items: [bookingDto, { ...bookingDto, id: 'b2' }],
-          meta: { page: 1, limit: 20, total: 2, totalPages: 1 },
-        })) as TicketServiceStub['List'],
+      booking: {
+        List: (() =>
+          of({
+            items: [bookingDto, { ...bookingDto, id: 'b2' }],
+            meta: { page: 1, limit: 20, total: 2, totalPages: 1 },
+          })) as BookingServiceStub['List'],
+      },
     });
 
     const result = await service.list(userId, 1, 20);
@@ -126,30 +160,55 @@ describe('BookingsService', () => {
     const cinema = {
       getShowtime: jest.fn().mockRejectedValue(new Error('down')),
     } as unknown as CinemaService;
-    const service = makeService(
-      {
-        Get: (() => of(bookingDto)) as TicketServiceStub['Get'],
+    const service = makeService({
+      booking: {
+        Get: (() => of(bookingDto)) as BookingServiceStub['Get'],
       },
       cinema,
-    );
+    });
 
     const result = await service.get(userId, 'b1');
     expect(result.id).toBe('b1');
     expect(result.movie).toBeUndefined();
   });
 
-  it('rethrows RPC errors from the ticket service', async () => {
+  it('rethrows RPC errors from booking-service', async () => {
     const service = makeService({
-      Cancel: (() =>
-        throwError(() => ({
-          statusCode: 409,
-          message: 'Cannot cancel a confirmed booking',
-          error: 'Conflict',
-        }))) as TicketServiceStub['Cancel'],
+      booking: {
+        Cancel: (() =>
+          throwError(() => ({
+            statusCode: 409,
+            message: 'Cannot cancel a confirmed booking',
+            error: 'Conflict',
+          }))) as BookingServiceStub['Cancel'],
+      },
     });
 
     await expect(service.cancel(userId, 'b1')).rejects.toThrow(
       'Cannot cancel a confirmed booking',
     );
+  });
+
+  it('sync-payment asks payment-service then reads the booking projection', async () => {
+    const seen: unknown[] = [];
+    const service = makeService({
+      payment: {
+        SyncPaymentStatus: ((payload: unknown) => {
+          seen.push(payload);
+          return of({
+            id: 'p1',
+            bookingId: 'b1',
+            status: 'PAID',
+          });
+        }) as PaymentServiceStub['SyncPaymentStatus'],
+      },
+      booking: {
+        Get: (() => of(bookingDto)) as BookingServiceStub['Get'],
+      },
+    });
+
+    const result = await service.syncPaymentStatus(userId, 'b1');
+    expect(seen[0]).toEqual({ bookingId: 'b1' });
+    expect(result.id).toBe('b1');
   });
 });

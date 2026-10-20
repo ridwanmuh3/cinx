@@ -5,3 +5,4 @@ export * from './grpc-clients';
 export * from './tracing';
 export * from './messaging-trace';
 export * from './booking-metrics';
+export * from './rmq-ack.interceptor';
