@@ -24,7 +24,10 @@ async function load(): Promise<void> {
     const page = await api.listMovies(nowPlaying.value ? { nowPlaying: true } : {});
     movies.value = page.items;
   } catch (err) {
-    error.value = describeApiError(err, 'Could not load movies. Check your connection and try again.');
+    error.value = describeApiError(
+      err,
+      'Could not load movies. Check your connection and try again.',
+    );
   } finally {
     loading.value = false;
   }

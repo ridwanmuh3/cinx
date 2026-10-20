@@ -7,9 +7,33 @@ const seatMap: SeatMap = {
   showtimeId: 'st-1',
   price: { amount: 50000, currency: 'IDR' },
   seats: [
-    { id: 's1', row: 'A', number: 1, category: 'REGULAR', isAccessible: false, isDisabled: false, status: 'AVAILABLE' },
-    { id: 's2', row: 'B', number: 7, category: 'REGULAR', isAccessible: false, isDisabled: false, status: 'AVAILABLE' },
-    { id: 's3', row: 'B', number: 8, category: 'VIP', isAccessible: false, isDisabled: false, status: 'AVAILABLE' },
+    {
+      id: 's1',
+      row: 'A',
+      number: 1,
+      category: 'REGULAR',
+      isAccessible: false,
+      isDisabled: false,
+      status: 'AVAILABLE',
+    },
+    {
+      id: 's2',
+      row: 'B',
+      number: 7,
+      category: 'REGULAR',
+      isAccessible: false,
+      isDisabled: false,
+      status: 'AVAILABLE',
+    },
+    {
+      id: 's3',
+      row: 'B',
+      number: 8,
+      category: 'VIP',
+      isAccessible: false,
+      isDisabled: false,
+      status: 'AVAILABLE',
+    },
   ],
 };
 

@@ -8,7 +8,10 @@ import { ApiError } from '@/shared/api';
  * Validation payloads (400/422) are passed through — the backend messages
  * there are already human-readable and field-specific.
  */
-export function describeApiError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+export function describeApiError(
+  err: unknown,
+  fallback = 'Something went wrong. Please try again.',
+): string {
   if (!(err instanceof Error)) return fallback;
 
   const raw = err.message?.trim() ?? '';
